@@ -1,0 +1,170 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  ADMIN
+  PLANNER
+  VIEWER
+}
+
+enum ImportSource {
+  UPLOAD
+  URL
+}
+
+enum WoStatus {
+  NOT_START
+  IN_PROGRESS
+  WAITING_MATERIAL
+  WAITING_APPROVAL
+  WAITING_SHUTDOWN
+  WAITING_FACILITATE
+  COMPLETED
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  role         Role     @default(VIEWER)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  workOrderUpdates WorkOrderUpdate[]
+  importBatches    ImportBatch[]
+  activityLogs     ActivityLog[]
+
+  @@map("users")
+}
+
+// Import-owned snapshot of a Work Order. Upserted on every sync; never
+// edited directly by users. Planner-entered state lives in WorkOrderUpdate.
+model WorkOrder {
+  wo             String    @id
+  desc           String?
+  location       String?
+  asset          String?
+  plant          String?
+  team           String?
+  priority       String?
+  statusAJ       String?
+  status         String?
+  overdue        String?
+  supervisor     String?
+  workLocation   String?
+  woType         String?
+  targetStart    DateTime?
+  targetFinish   DateTime?
+  actualStart    DateTime?
+  actualFinish   DateTime?
+  dataDate       DateTime?
+  plannedHours   Float     @default(0)
+  actualHours    Float     @default(0)
+
+  importBatchId String?
+  importBatch   ImportBatch? @relation(fields: [importBatchId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  update       WorkOrderUpdate?
+  activityLogs ActivityLog[]
+
+  @@index([status])
+  @@index([team])
+  @@index([priority])
+  @@index([targetFinish])
+  @@map("work_orders")
+}
+
+// Planner-owned overlay, 1:1 with WorkOrder. Survives re-import.
+model WorkOrderUpdate {
+  woId String @id
+  wo   WorkOrder @relation(fields: [woId], references: [wo], onDelete: Cascade)
+
+  status   WoStatus @default(NOT_START)
+  progress Int      @default(0)
+  remark   String?
+
+  rescheduledDate DateTime?
+  reschedReason   String?
+  reschedWho      String?
+
+  updatedById String?
+  updatedBy   User?    @relation(fields: [updatedById], references: [id])
+  updatedAt   DateTime @updatedAt
+
+  @@index([status])
+  @@map("work_order_updates")
+}
+
+model ImportBatch {
+  id           String       @id @default(cuid())
+  fileName     String
+  source       ImportSource
+  rowCount     Int
+  importedById String?
+  importedBy   User?        @relation(fields: [importedById], references: [id])
+  createdAt    DateTime     @default(now())
+
+  workOrders WorkOrder[]
+
+  @@map("import_batches")
+}
+
+// Historical snapshots: one row per (Work Order x Data_Date). Unlike WorkOrder
+// (deduped to the latest per WO), this preserves every daily snapshot so the
+// dashboard can show the backlog "as of" any Data_Date.
+model WorkOrderSnapshot {
+  id           String    @id @default(cuid())
+  wo           String
+  dataDate     DateTime
+  desc         String?
+  location     String?
+  asset        String?
+  plant        String?
+  team         String?
+  priority     String?
+  statusAJ     String?
+  status       String?
+  overdue      String?
+  supervisor   String?
+  workLocation String?
+  woType       String?
+  targetStart  DateTime?
+  targetFinish DateTime?
+  actualStart  DateTime?
+  actualFinish DateTime?
+  plannedHours Float     @default(0)
+  actualHours  Float     @default(0)
+
+  importBatchId String?
+  createdAt     DateTime @default(now())
+
+  @@unique([wo, dataDate])
+  @@index([dataDate])
+  @@map("work_order_snapshots")
+}
+
+model ActivityLog {
+  id        String   @id @default(cuid())
+  woId      String?
+  wo        WorkOrder? @relation(fields: [woId], references: [wo], onDelete: SetNull)
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  action    String
+  detail    Json?
+  createdAt DateTime @default(now())
+
+  @@index([woId])
+  @@index([createdAt])
+  @@map("activity_logs")
+}
