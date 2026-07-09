@@ -2013,7 +2013,11 @@ function loadAll(){
     });
     USER_UPDATES = s.userUpdates || {};
     ACTIVITY = s.activity || [];
-    MANUAL_SD_TAGS = {}; SD_REMARKS = {};
+    // Hydrate localStorage from the shared app-data blobs so every feature's
+    // existing localStorage reads transparently return server data.
+    if (typeof mtHydrateAppData==='function') mtHydrateAppData(s.appData);
+    try { MANUAL_SD_TAGS = JSON.parse(localStorage.getItem(LS_SD_TAGS)) || {}; } catch(e){ MANUAL_SD_TAGS = {}; }
+    try { SD_REMARKS = JSON.parse(localStorage.getItem(LS_SD_REMARKS)) || {}; } catch(e){ SD_REMARKS = {}; }
     return;
   }
   try {
@@ -2051,6 +2055,30 @@ function saveActivity(){ if(window.__MT_SEED__) return; localStorage.setItem(LS_
 function mtToast(msg, color){ try{ if(typeof showToast==='function'){ showToast(msg, color||'#2563eb'); return; } }catch(e){} }
 // Load a different Data_Date snapshot from the server (each snapshot is separate).
 function mtGoToDate(date){ if(window.__MT_SEED__ && date){ location.href = '/tower?date=' + encodeURIComponent(date); } }
+
+/* App-data blobs that were per-browser localStorage, now shared via /api/appdata.
+   Reads are hydrated from the server seed; writes are mirrored back (debounced). */
+var MT_APPDATA_KEYS = ['mt_dpc_reschedule_v1','mt_shutdown_manual_tags_v1','mt_sd_remarks_v1','mt_facilitate_v1','mt_fac_activity_v1','mt_outsource_v1','mt_equip_master_v1'];
+var _mtOrigSetItem = window.localStorage.setItem.bind(window.localStorage);
+var _mtSaveTimers = {};
+function mtHydrateAppData(appData){
+  if(!appData) return;
+  for(var k in appData){ try{ _mtOrigSetItem(k, JSON.stringify(appData[k])); }catch(e){} }
+}
+// Intercept writes to migrated keys and push them to the shared server.
+window.localStorage.setItem = function(key, val){
+  _mtOrigSetItem(key, val);
+  if(window.__MT_SEED__ && MT_APPDATA_KEYS.indexOf(key)>=0){
+    if(!window.__MT_CANEDIT__){ return; } // viewers: local only, no server write
+    clearTimeout(_mtSaveTimers[key]);
+    _mtSaveTimers[key] = setTimeout(function(){
+      var parsed; try{ parsed = JSON.parse(val); }catch(e){ parsed = val; }
+      fetch('/api/appdata',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:key,value:parsed})})
+        .then(function(r){ if(!r.ok){ mtToast('❌ บันทึกขึ้นระบบไม่สำเร็จ','#dc2626'); } })
+        .catch(function(){ mtToast('❌ เชื่อมต่อระบบไม่ได้','#dc2626'); });
+    }, 600);
+  }
+};
 async function mtPersistWoUpdate(wo, statusKey, progress, remark, who){
   try{
     const resp = await fetch('/api/wo-update', {

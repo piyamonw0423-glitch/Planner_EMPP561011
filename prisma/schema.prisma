@@ -154,6 +154,17 @@ model WorkOrderSnapshot {
   @@map("work_order_snapshots")
 }
 
+// Shared key-value store for app-managed blobs that were previously kept in
+// each browser's localStorage (planner reschedule, shutdown tags/remarks,
+// facilitate service, outsource, equipment master). Whole-blob, last-write-wins.
+model AppData {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+
+  @@map("app_data")
+}
+
 model ActivityLog {
   id        String   @id @default(cuid())
   woId      String?

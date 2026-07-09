@@ -73,6 +73,9 @@ export type DraftState = {
     availableDates: string[];
     selectedDate: string | null;
   };
+  // Shared app-managed blobs (reschedule, shutdown, facilitate, ... ) keyed by
+  // their original localStorage key.
+  appData: Record<string, unknown>;
 };
 
 const s = (v: string | null | undefined) => v ?? "";
@@ -132,21 +135,26 @@ function mapRow(r: WoLike): DraftWoRow {
 // and available, otherwise the latest snapshot. Falls back to the WorkOrder
 // table if no snapshots exist yet (e.g. before the first snapshot-aware import).
 export async function getDraftState(requestedDate?: string): Promise<DraftState> {
-  const [distinctDates, updates, activity, lastBatch] = await Promise.all([
-    prisma.workOrderSnapshot.findMany({
-      distinct: ["dataDate"],
-      select: { dataDate: true },
-      orderBy: { dataDate: "desc" },
-    }),
-    prisma.workOrderUpdate.findMany(),
-    prisma.activityLog.findMany({
-      where: { action: "STATUS_UPDATE" },
-      orderBy: { createdAt: "desc" },
-      take: 30,
-      include: { user: { select: { name: true } } },
-    }),
-    prisma.importBatch.findFirst({ orderBy: { createdAt: "desc" } }),
-  ]);
+  const [distinctDates, updates, activity, lastBatch, appDataRows] =
+    await Promise.all([
+      prisma.workOrderSnapshot.findMany({
+        distinct: ["dataDate"],
+        select: { dataDate: true },
+        orderBy: { dataDate: "desc" },
+      }),
+      prisma.workOrderUpdate.findMany(),
+      prisma.activityLog.findMany({
+        where: { action: "STATUS_UPDATE" },
+        orderBy: { createdAt: "desc" },
+        take: 30,
+        include: { user: { select: { name: true } } },
+      }),
+      prisma.importBatch.findFirst({ orderBy: { createdAt: "desc" } }),
+      prisma.appData.findMany(),
+    ]);
+
+  const appData: Record<string, unknown> = {};
+  for (const r of appDataRows) appData[r.key] = r.value;
 
   const availableDates = distinctDates.map((d) =>
     d.dataDate.toISOString().slice(0, 10)
@@ -204,5 +212,6 @@ export async function getDraftState(requestedDate?: string): Promise<DraftState>
       availableDates,
       selectedDate,
     },
+    appData,
   };
 }
