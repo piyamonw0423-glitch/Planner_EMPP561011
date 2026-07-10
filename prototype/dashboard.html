@@ -898,18 +898,35 @@
         <!-- PART 1: 6 Overall KPI Tiles -->
         <div class="ov-tiles-row" id="ovSummaryTiles"></div>
 
-        <!-- Status A-J Breakdown Dashboard -->
-        <div class="ov-card" style="margin:16px 0 0;">
-          <div class="ov-card-title" style="background:linear-gradient(135deg,#1e3a8a,#0284c7);">📊 STATUS A-J — แยกตาม WO Status จริง (คิดเป็น %)</div>
-          <div style="display:flex;gap:22px;flex-wrap:wrap;align-items:center;justify-content:center;padding:14px 4px;">
-            <div style="position:relative;width:230px;height:230px;flex:0 0 auto;">
-              <canvas id="ovAjChart" role="img" aria-label="โดนัทชาร์ตแสดงสัดส่วน Status A-J"></canvas>
-              <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none;">
-                <div id="ovAjCenterNum" style="font-size:26px;font-weight:900;color:#1e293b;">0</div>
-                <div style="font-size:10px;color:#94a3b8;font-weight:800;letter-spacing:.5px;">TOTAL WO</div>
+        <!-- Status A-J + WO Cumulative Trend (side by side) -->
+        <div class="ov-charts-row" style="margin:16px 0 0;align-items:stretch;">
+          <div class="ov-card" style="flex:1;min-width:320px;margin:0;">
+            <div class="ov-card-title" style="background:linear-gradient(135deg,#1e3a8a,#0284c7);">📊 STATUS A-J — แยกตาม WO Status จริง (คิดเป็น %)</div>
+            <div style="display:flex;gap:22px;flex-wrap:wrap;align-items:center;justify-content:center;padding:14px 4px;">
+              <div style="position:relative;width:230px;height:230px;flex:0 0 auto;">
+                <canvas id="ovAjChart" role="img" aria-label="โดนัทชาร์ตแสดงสัดส่วน Status A-J"></canvas>
+                <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none;">
+                  <div id="ovAjCenterNum" style="font-size:26px;font-weight:900;color:#1e293b;">0</div>
+                  <div style="font-size:10px;color:#94a3b8;font-weight:800;letter-spacing:.5px;">TOTAL WO</div>
+                </div>
+              </div>
+              <div id="ovAjLegend" style="flex:1;min-width:280px;display:flex;flex-direction:column;gap:5px;"></div>
+            </div>
+          </div>
+          <div class="ov-card" style="flex:1;min-width:340px;margin:0;">
+            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:10px;">
+              <div class="ov-card-title" style="margin-bottom:0;background:linear-gradient(135deg,#0c1445,#1e3a8a);">📊 WO CUMULATIVE TREND — TOTAL WO vs CLOSE vs BACKLOG</div>
+              <div class="ov-period-tabs" id="ovPeriodTabs">
+                <button class="ov-period-btn active" data-period="week">รายสัปดาห์</button>
+                <button class="ov-period-btn" data-period="month">รายเดือน</button>
+                <button class="ov-period-btn" data-period="year">รายปี</button>
               </div>
             </div>
-            <div id="ovAjLegend" style="flex:1;min-width:280px;display:flex;flex-direction:column;gap:5px;"></div>
+            <div class="chart-legend" id="cumulLegend" style="margin-bottom:6px;"></div>
+            <div style="position:relative;height:280px;">
+              <canvas id="ovCumulChart" role="img" aria-label="กราฟ WO สะสมเปรียบเทียบ"></canvas>
+            </div>
+            <div id="cumulSummary" style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;"></div>
           </div>
         </div>
 
@@ -959,23 +976,6 @@
               <canvas id="ovCategoryChart" role="img" aria-label="ประเภทงานแยกตาม Description"></canvas>
             </div>
           </div>
-        </div>
-
-        <!-- WO CUMULATIVE TREND — bottom -->
-        <div class="ov-card" style="margin-top:16px;">
-          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:10px;">
-            <div class="ov-card-title" style="margin-bottom:0;background:linear-gradient(135deg,#0c1445,#1e3a8a);">📊 WO CUMULATIVE TREND — TOTAL WO vs CLOSE vs BACKLOG</div>
-            <div class="ov-period-tabs" id="ovPeriodTabs">
-              <button class="ov-period-btn active" data-period="week">รายสัปดาห์</button>
-              <button class="ov-period-btn" data-period="month">รายเดือน</button>
-              <button class="ov-period-btn" data-period="year">รายปี</button>
-            </div>
-          </div>
-          <div class="chart-legend" id="cumulLegend" style="margin-bottom:6px;"></div>
-          <div style="position:relative;height:280px;">
-            <canvas id="ovCumulChart" role="img" aria-label="กราฟ WO สะสมเปรียบเทียบ"></canvas>
-          </div>
-          <div id="cumulSummary" style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;"></div>
         </div>
 
       </div>
@@ -3641,8 +3641,22 @@ function renderCumulativeTrend(rows, period){
     });
   }
 
-  // Cumulative running totals
-  let cumIssued=0,cumClose=0;
+  // Baseline: everything issued/closed BEFORE the first shown period, so the
+  // cumulative reflects ALL-TIME totals (not just the visible window) and the
+  // lines reach the real TOTAL WO / Close.
+  let firstStart=null;
+  if(period==='week'){ firstStart=new Date(today); firstStart.setDate(firstStart.getDate()-15*7); firstStart.setHours(0,0,0,0); }
+  else if(period==='month'){ firstStart=new Date(today.getFullYear(), today.getMonth()-17, 1); }
+  let baseIssued=0, baseClose=0;
+  if(firstStart){
+    uniq.forEach(r=>{
+      if(r.targetStart && new Date(r.targetStart) < firstStart) baseIssued++;
+      const fin=r.actualFinish||r.targetFinish;
+      if(statusGroup(r)==='close' && fin && new Date(fin) < firstStart) baseClose++;
+    });
+  }
+  // Cumulative running totals (start from the pre-window baseline)
+  let cumIssued=baseIssued,cumClose=baseClose;
   const cumIssuedArr=[],cumCloseArr=[],backlogArr=[];
   issuedPer.forEach((_,i)=>{ cumIssued+=issuedPer[i]; cumClose+=closePer[i]; cumIssuedArr.push(cumIssued); cumCloseArr.push(cumClose); backlogArr.push(Math.max(0,cumIssued-cumClose)); });
 
