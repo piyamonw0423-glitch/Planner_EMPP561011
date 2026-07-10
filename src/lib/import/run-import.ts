@@ -1,6 +1,13 @@
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@/generated/prisma/client";
-import { parseRows, streamCsv, type ParsedWorkOrder } from "./parse";
+import {
+  parseRows,
+  streamCsv,
+  parseSheetRef,
+  gvizUrl,
+  gvizDateToIso,
+  type ParsedWorkOrder,
+} from "./parse";
 
 const BATCH_SIZE = 500;
 
@@ -188,6 +195,84 @@ async function upsertSnapshotBatch(
       "actualHours" = EXCLUDED."actualHours",
       "importBatchId" = EXCLUDED."importBatchId"
   `;
+}
+
+// Scalable incremental import via the gviz query API: ask Google which
+// Data_Dates exist (tiny response), then download ONLY the dates we don't have
+// yet. Stays fast no matter how large the whole sheet grows.
+export async function runGvizIncrementalImport(opts: {
+  sheetUrl: string;
+  fileName: string;
+  source: "UPLOAD" | "URL";
+  importedById: string;
+}): Promise<{ id: string | null; rowCount: number; newDates: string[] }> {
+  const ref = parseSheetRef(opts.sheetUrl);
+  if (!ref) throw new Error("not a Google Sheets URL");
+
+  // 1) Which Data_Dates does the sheet have? (BL = Data_Date column)
+  const countCsv = await (
+    await fetch(gvizUrl(ref.id, ref.gid, "select BL, count(A) group by BL"))
+  ).text();
+  const sheetDates: string[] = [];
+  streamCsv(countCsv, (r) => {
+    const raw = String(r["Data_Date"] ?? Object.values(r)[0] ?? "");
+    const iso = gvizDateToIso(raw);
+    if (iso) sheetDates.push(iso);
+  });
+  if (sheetDates.length === 0) throw new Error("gviz returned no dates");
+
+  // 2) Skip dates already stored.
+  const existingRows = await prisma.workOrderSnapshot.findMany({
+    distinct: ["dataDate"],
+    select: { dataDate: true },
+  });
+  const existing = new Set(
+    existingRows.map((d) => d.dataDate.toISOString().slice(0, 10))
+  );
+  const newDates = sheetDates.filter((d) => !existing.has(d));
+  if (newDates.length === 0) return { id: null, rowCount: 0, newDates: [] };
+
+  // 3) Download only the new dates' rows.
+  const snap = new Map<string, ParsedWorkOrder>();
+  for (const iso of newDates) {
+    const csv = await (
+      await fetch(gvizUrl(ref.id, ref.gid, `select * where BL = date '${iso}'`))
+    ).text();
+    streamCsv(csv, (raw) => {
+      const p = parseRows([raw])[0];
+      if (p && p.dataDate) snap.set(`${p.wo}|${p.dataDate.toISOString()}`, p);
+    });
+  }
+  const snapRows = [...snap.values()];
+  if (snapRows.length === 0) return { id: null, rowCount: 0, newDates: [] };
+
+  const batch = await prisma.importBatch.create({
+    data: {
+      fileName: opts.fileName,
+      source: opts.source,
+      rowCount: snapRows.length,
+      importedById: opts.importedById,
+    },
+  });
+  for (const part of chunk(snapRows, BATCH_SIZE)) {
+    await upsertSnapshotBatch(part, batch.id);
+  }
+  await rebuildWorkOrdersFromSnapshots();
+  await prisma.activityLog.create({
+    data: {
+      userId: opts.importedById,
+      action: "IMPORT",
+      detail: {
+        fileName: opts.fileName,
+        source: opts.source,
+        via: "gviz",
+        snapshots: snapRows.length,
+        newDates,
+        batchId: batch.id,
+      },
+    },
+  });
+  return { id: batch.id, rowCount: snapRows.length, newDates };
 }
 
 export async function runImport(opts: {

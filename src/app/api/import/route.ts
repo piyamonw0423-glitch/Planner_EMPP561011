@@ -1,6 +1,10 @@
 import { auth } from "@/auth";
 import { parseWorkbookBuffer, googleSheetUrlToCsv } from "@/lib/import/parse";
-import { runImport, runIncrementalCsvImport } from "@/lib/import/run-import";
+import {
+  runImport,
+  runIncrementalCsvImport,
+  runGvizIncrementalImport,
+} from "@/lib/import/run-import";
 
 export const maxDuration = 300;
 
@@ -42,23 +46,33 @@ export async function POST(request: Request) {
     }
 
     if (typeof url === "string" && url.trim()) {
-      const csvUrl = googleSheetUrlToCsv(url);
-      const resp = await fetch(csvUrl);
-      if (!resp.ok) {
-        return Response.json(
-          { error: `โหลด URL ไม่สำเร็จ: HTTP ${resp.status}` },
-          { status: 400 }
-        );
+      // Preferred path: gviz query — download only the NEW Data_Dates, so it
+      // scales no matter how large the sheet gets. Fall back to streaming the
+      // whole CSV if gviz isn't available for this sheet.
+      let result: { id: string | null; rowCount: number; newDates: string[] };
+      try {
+        result = await runGvizIncrementalImport({
+          sheetUrl: url,
+          fileName: "URL Import",
+          source: "URL",
+          importedById: session.user.id,
+        });
+      } catch (gvizErr) {
+        console.warn("gviz import failed, falling back to full CSV:", gvizErr);
+        const resp = await fetch(googleSheetUrlToCsv(url));
+        if (!resp.ok) {
+          return Response.json(
+            { error: `โหลด URL ไม่สำเร็จ: HTTP ${resp.status}` },
+            { status: 400 }
+          );
+        }
+        result = await runIncrementalCsvImport({
+          csv: await resp.text(),
+          fileName: "URL Import",
+          source: "URL",
+          importedById: session.user.id,
+        });
       }
-      const text = await resp.text();
-      // Incremental + low-memory: only imports Data_Dates not already stored,
-      // so routine refreshes stay light enough for a small server.
-      const result = await runIncrementalCsvImport({
-        csv: text,
-        fileName: "URL Import",
-        source: "URL",
-        importedById: session.user.id,
-      });
       return Response.json({
         ok: true,
         rowCount: result.rowCount,

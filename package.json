@@ -10,7 +10,8 @@
     "lint": "eslint",
     "db:push": "prisma db push",
     "db:studio": "prisma studio",
-    "db:seed": "tsx prisma/seed.ts"
+    "db:seed": "tsx prisma/seed.ts",
+    "import": "tsx scripts/import-sheet.ts"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.8.0",

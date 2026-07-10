@@ -217,6 +217,34 @@ export function parseCsvText(text: string): ParsedWorkOrder[] {
   return parseRows(json);
 }
 
+// Extract the spreadsheet id + gid from any Google Sheets URL.
+export function parseSheetRef(inputUrl: string): { id: string; gid: string } | null {
+  const url = inputUrl.trim();
+  const m = url.match(/\/d\/([^/]+)/);
+  if (!m) return null;
+  const gidM = url.match(/[?&#]gid=(\d+)/);
+  return { id: m[1], gid: gidM ? gidM[1] : "0" };
+}
+
+// Build a Google Visualization (gviz) query URL that returns CSV. This lets us
+// ask Google to filter server-side (e.g. only one Data_Date), so we never
+// download the whole growing sheet.
+export function gvizUrl(id: string, gid: string, tq: string): string {
+  return (
+    `https://docs.google.com/spreadsheets/d/${id}/gviz/tq` +
+    `?tqx=out:csv&gid=${gid}&tq=${encodeURIComponent(tq)}`
+  );
+}
+
+// gviz returns dates like "2026-7-8" (unpadded). Normalize to YYYY-MM-DD.
+export function gvizDateToIso(s: string): string | null {
+  const m = String(s)
+    .trim()
+    .match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (!m) return null;
+  return `${m[1]}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}`;
+}
+
 export function googleSheetUrlToCsv(inputUrl: string): string {
   let url = inputUrl.trim();
   if (
