@@ -156,6 +156,53 @@ export function parseRows(json: RawRow[]): ParsedWorkOrder[] {
     .filter((r): r is ParsedWorkOrder => r !== null);
 }
 
+// Memory-light streaming CSV parser: calls onRow for each data row (as an
+// object keyed by header) without building a full workbook or holding all rows.
+// Handles RFC-4180 quoting ("" escapes, commas/newlines inside quotes).
+export function streamCsv(text: string, onRow: (row: RawRow) => void): void {
+  let header: string[] | null = null;
+  let field = "";
+  let row: string[] = [];
+  let inQuotes = false;
+
+  const endField = () => {
+    row.push(field);
+    field = "";
+  };
+  const endRow = () => {
+    endField();
+    if (!header) {
+      header = row.map((h) => h.trim());
+    } else if (row.length > 1 || row[0] !== "") {
+      const obj: RawRow = {};
+      for (let j = 0; j < header.length; j++) obj[header[j]] = row[j] ?? "";
+      onRow(obj);
+    }
+    row = [];
+  };
+
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQuotes) {
+      if (c === '"') {
+        if (text[i + 1] === '"') {
+          field += '"';
+          i++;
+        } else inQuotes = false;
+      } else field += c;
+    } else if (c === '"') {
+      inQuotes = true;
+    } else if (c === ",") {
+      endField();
+    } else if (c === "\n") {
+      endRow();
+    } else if (c !== "\r") {
+      field += c;
+    }
+  }
+  if (field !== "" || row.length) endRow();
+}
+
 export function parseWorkbookBuffer(buffer: ArrayBuffer): ParsedWorkOrder[] {
   const wb = XLSX.read(buffer, { type: "buffer", cellDates: true });
   const sheet = wb.Sheets[wb.SheetNames[0]];

@@ -1,8 +1,101 @@
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@/generated/prisma/client";
-import type { ParsedWorkOrder } from "./parse";
+import { parseRows, streamCsv, type ParsedWorkOrder } from "./parse";
 
 const BATCH_SIZE = 500;
+
+// Rebuild the current WorkOrder table from the latest snapshot per WO, entirely
+// in the database (no app memory). Run after snapshots change.
+async function rebuildWorkOrdersFromSnapshots() {
+  await prisma.$executeRawUnsafe(`
+    INSERT INTO work_orders (
+      wo, "desc", location, asset, plant, team, priority, "statusAJ", status,
+      overdue, supervisor, "workLocation", "woType", "targetStart",
+      "targetFinish", "actualStart", "actualFinish", "dataDate",
+      "plannedHours", "actualHours", "importBatchId", "createdAt", "updatedAt"
+    )
+    SELECT DISTINCT ON (wo)
+      wo, "desc", location, asset, plant, team, priority, "statusAJ", status,
+      overdue, supervisor, "workLocation", "woType", "targetStart",
+      "targetFinish", "actualStart", "actualFinish", "dataDate",
+      "plannedHours", "actualHours", "importBatchId", now(), now()
+    FROM work_order_snapshots
+    ORDER BY wo, "dataDate" DESC
+    ON CONFLICT (wo) DO UPDATE SET
+      "desc" = EXCLUDED."desc", location = EXCLUDED.location, asset = EXCLUDED.asset,
+      plant = EXCLUDED.plant, team = EXCLUDED.team, priority = EXCLUDED.priority,
+      "statusAJ" = EXCLUDED."statusAJ", status = EXCLUDED.status, overdue = EXCLUDED.overdue,
+      supervisor = EXCLUDED.supervisor, "workLocation" = EXCLUDED."workLocation",
+      "woType" = EXCLUDED."woType", "targetStart" = EXCLUDED."targetStart",
+      "targetFinish" = EXCLUDED."targetFinish", "actualStart" = EXCLUDED."actualStart",
+      "actualFinish" = EXCLUDED."actualFinish", "dataDate" = EXCLUDED."dataDate",
+      "plannedHours" = EXCLUDED."plannedHours", "actualHours" = EXCLUDED."actualHours",
+      "importBatchId" = EXCLUDED."importBatchId", "updatedAt" = now()
+  `);
+}
+
+// Incremental, low-memory CSV import (for large Google-Sheet URL refreshes on a
+// small server): stream-parse, keep only rows for Data_Dates not already stored,
+// upsert those snapshots, then rebuild WorkOrder from snapshots in SQL.
+export async function runIncrementalCsvImport(opts: {
+  csv: string;
+  fileName: string;
+  source: "UPLOAD" | "URL";
+  importedById: string;
+}): Promise<{ id: string | null; rowCount: number; newDates: string[] }> {
+  const { csv, fileName, source, importedById } = opts;
+
+  const existingDatesRows = await prisma.workOrderSnapshot.findMany({
+    distinct: ["dataDate"],
+    select: { dataDate: true },
+  });
+  const existing = new Set(existingDatesRows.map((d) => d.dataDate.toISOString()));
+
+  // Stream the CSV; keep only rows whose Data_Date is new (dedup on wo+dataDate).
+  const newRows = new Map<string, ParsedWorkOrder>();
+  const newDates = new Set<string>();
+  streamCsv(csv, (raw) => {
+    const p = parseRows([raw])[0];
+    if (!p || !p.dataDate) return;
+    const iso = p.dataDate.toISOString();
+    if (existing.has(iso)) return;
+    newDates.add(iso);
+    newRows.set(`${p.wo}|${iso}`, p);
+  });
+
+  const snapRows = [...newRows.values()];
+  if (snapRows.length === 0) {
+    return { id: null, rowCount: 0, newDates: [] };
+  }
+
+  const batch = await prisma.importBatch.create({
+    data: { fileName, source, rowCount: snapRows.length, importedById },
+  });
+  for (const part of chunk(snapRows, BATCH_SIZE)) {
+    await upsertSnapshotBatch(part, batch.id);
+  }
+  await rebuildWorkOrdersFromSnapshots();
+
+  await prisma.activityLog.create({
+    data: {
+      userId: importedById,
+      action: "IMPORT",
+      detail: {
+        fileName,
+        source,
+        snapshots: snapRows.length,
+        newDates: [...newDates].map((d) => d.slice(0, 10)),
+        batchId: batch.id,
+      },
+    },
+  });
+
+  return {
+    id: batch.id,
+    rowCount: snapRows.length,
+    newDates: [...newDates].map((d) => d.slice(0, 10)),
+  };
+}
 
 function chunk<T>(arr: T[], size: number): T[][] {
   const out: T[][] = [];

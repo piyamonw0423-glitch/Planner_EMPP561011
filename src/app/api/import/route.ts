@@ -1,10 +1,6 @@
 import { auth } from "@/auth";
-import {
-  parseWorkbookBuffer,
-  parseCsvText,
-  googleSheetUrlToCsv,
-} from "@/lib/import/parse";
-import { runImport } from "@/lib/import/run-import";
+import { parseWorkbookBuffer, googleSheetUrlToCsv } from "@/lib/import/parse";
+import { runImport, runIncrementalCsvImport } from "@/lib/import/run-import";
 
 export const maxDuration = 300;
 
@@ -55,20 +51,20 @@ export async function POST(request: Request) {
         );
       }
       const text = await resp.text();
-      const rows = parseCsvText(text);
-      if (rows.length === 0) {
-        return Response.json(
-          { error: "ไม่พบข้อมูล หรือหัวคอลัมน์ไม่ตรง" },
-          { status: 400 }
-        );
-      }
-      const batch = await runImport({
-        rows,
+      // Incremental + low-memory: only imports Data_Dates not already stored,
+      // so routine refreshes stay light enough for a small server.
+      const result = await runIncrementalCsvImport({
+        csv: text,
         fileName: "URL Import",
         source: "URL",
         importedById: session.user.id,
       });
-      return Response.json({ ok: true, rowCount: batch.rowCount, batchId: batch.id });
+      return Response.json({
+        ok: true,
+        rowCount: result.rowCount,
+        newDates: result.newDates,
+        batchId: result.id,
+      });
     }
 
     return Response.json(

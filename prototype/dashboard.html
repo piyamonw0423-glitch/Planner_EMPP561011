@@ -2109,10 +2109,14 @@ async function mtImportUrl(url, statusEl){
   if(!window.__MT_CANEDIT__){ alert('🔐 กรุณาเข้าสู่ระบบ (Admin) ก่อนอัปเดตข้อมูล'); return; }
   const fd = new FormData(); fd.append('url', url);
   try{
-    if(statusEl){ statusEl.innerHTML='⏳ กำลังโหลดผ่านระบบส่วนกลาง...'; statusEl.style.color='#f59e0b'; }
+    if(statusEl){ statusEl.innerHTML='⏳ กำลังโหลดข้อมูลใหม่ (เฉพาะวันที่ยังไม่มี)...'; statusEl.style.color='#f59e0b'; }
     const data = await mtImport(fd, statusEl);
-    if(statusEl){ statusEl.innerHTML=`✅ โหลดสำเร็จ <b>${data.rowCount}</b> รายการ — กำลังรีเฟรช...`; statusEl.style.color='#10b981'; }
-    setTimeout(()=>location.reload(), 700);
+    var nd = (data.newDates && data.newDates.length) ? data.newDates.join(', ') : '';
+    if(statusEl){
+      if(!data.rowCount){ statusEl.innerHTML='✅ ข้อมูลเป็นปัจจุบันแล้ว (ไม่มีวันใหม่)'; statusEl.style.color='#10b981'; }
+      else { statusEl.innerHTML=`✅ เพิ่ม <b>${data.rowCount.toLocaleString()}</b> แถว (วันที่: ${nd}) — กำลังรีเฟรช...`; statusEl.style.color='#10b981'; }
+    }
+    setTimeout(()=>location.reload(), data.rowCount ? 900 : 1500);
   }catch(err){ if(statusEl){ statusEl.textContent='❌ '+err.message; statusEl.style.color='#dc2626'; } else alert('❌ '+err.message); }
 }
 function saveManualSdTags(){ localStorage.setItem(LS_SD_TAGS, JSON.stringify(MANUAL_SD_TAGS)); }
