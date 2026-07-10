@@ -12,7 +12,7 @@ export default auth((req) => {
   }
 
   if (req.nextUrl.pathname === "/login" && isLoggedIn) {
-    return NextResponse.redirect(new URL("/dashboard", req.nextUrl));
+    return NextResponse.redirect(new URL("/tower", req.nextUrl));
   }
 });
 

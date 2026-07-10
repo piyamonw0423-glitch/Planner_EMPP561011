@@ -1,13 +1,6 @@
-import { LoginForm } from "./login-form";
+import { RegisterForm } from "./register-form";
 
-export default async function LoginPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ callbackUrl?: string }>;
-}) {
-  const params = await searchParams;
-  const callbackUrl = params.callbackUrl || "/tower";
-
+export default function RegisterPage() {
   return (
     <div
       style={{
@@ -21,7 +14,7 @@ export default async function LoginPage({
     >
       <div
         style={{
-          width: 360,
+          width: 380,
           maxWidth: "100%",
           background: "#fff",
           borderRadius: 16,
@@ -29,14 +22,7 @@ export default async function LoginPage({
           boxShadow: "0 20px 60px rgba(0,0,0,.35)",
         }}
       >
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 10,
-            marginBottom: 22,
-          }}
-        >
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 22 }}>
           <div
             style={{
               width: 38,
@@ -54,16 +40,14 @@ export default async function LoginPage({
             ⚙️
           </div>
           <div>
-            <div style={{ fontSize: 15, fontWeight: 700 }}>
-              Maintenance Tracking
-            </div>
+            <div style={{ fontSize: 15, fontWeight: 700 }}>สมัครสมาชิก</div>
             <div style={{ fontSize: 11, color: "var(--text-soft)" }}>
-              Dashboard
+              Maintenance Tracking Dashboard
             </div>
           </div>
         </div>
 
-        <LoginForm callbackUrl={callbackUrl} />
+        <RegisterForm />
       </div>
     </div>
   );

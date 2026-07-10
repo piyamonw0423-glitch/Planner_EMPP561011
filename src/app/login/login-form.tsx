@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useActionState } from "react";
 import { authenticate } from "@/app/actions/auth";
 
@@ -54,6 +55,13 @@ export function LoginForm({ callbackUrl }: { callbackUrl: string }) {
       <button type="submit" className="wo-btn" disabled={pending}>
         {pending ? "กำลังเข้าสู่ระบบ..." : "เข้าสู่ระบบ"}
       </button>
+
+      <p style={{ fontSize: 12, color: "var(--text-soft)", marginTop: 14, textAlign: "center" }}>
+        ยังไม่มีบัญชี?{" "}
+        <Link href="/register" style={{ color: "var(--primary)", fontWeight: 600 }}>
+          สมัครสมาชิก
+        </Link>
+      </p>
     </form>
   );
 }

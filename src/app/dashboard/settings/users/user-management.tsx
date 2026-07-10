@@ -193,17 +193,17 @@ function UserRowItem({
       </td>
       <td>
         <span className={`pill ${user.isActive ? "pill-completed" : "pill-high"}`}>
-          {user.isActive ? "Active" : "Deactivated"}
+          {user.isActive ? "Active" : "🕓 รออนุมัติ"}
         </span>
       </td>
       <td>{new Date(user.createdAt).toLocaleDateString("th-TH")}</td>
       <td>
         <button
-          className="topbtn"
+          className={user.isActive ? "topbtn" : "topbtn primary"}
           disabled={isSelf || busy}
           onClick={toggleActive}
         >
-          {user.isActive ? "ปิดการใช้งาน" : "เปิดการใช้งาน"}
+          {user.isActive ? "ระงับการใช้งาน" : "✓ อนุมัติ"}
         </button>
       </td>
     </tr>

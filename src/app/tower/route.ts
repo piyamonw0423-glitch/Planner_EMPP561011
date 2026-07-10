@@ -24,36 +24,39 @@ function safeJson(value: unknown): string {
   );
 }
 
-// Public read-only dashboard. Anyone can VIEW without logging in; only an
-// authenticated Admin/Planner can update data (writes are gated server-side).
-function loginBar(user: { name: string; role: string } | null): string {
+// Signed-in bar: shows the user + logout, plus a "manage users" link for admins
+// (where they approve pending registrations and set roles).
+function loginBar(user: { name: string; role: string }): string {
   const box =
     "position:fixed;top:10px;right:14px;z-index:100000;display:flex;align-items:center;gap:8px;" +
     "font-family:'Sarabun',sans-serif;font-size:12px;";
-  if (user) {
-    return (
-      `<div style="${box}">` +
-      `<span style="background:#dcfce7;color:#15803d;padding:4px 10px;border-radius:20px;font-weight:700;">👤 ${user.name} · ${user.role}</span>` +
-      `<a href="/logout" style="background:#fee2e2;color:#b91c1c;padding:4px 12px;border-radius:20px;font-weight:700;text-decoration:none;">ออกจากระบบ</a>` +
-      `</div>`
-    );
-  }
+  const adminLink =
+    user.role === "ADMIN"
+      ? `<a href="/dashboard/settings/users" style="background:#e0e7ff;color:#3730a3;padding:4px 12px;border-radius:20px;font-weight:700;text-decoration:none;">👥 จัดการผู้ใช้</a>`
+      : "";
   return (
     `<div style="${box}">` +
-    `<a href="/login?callbackUrl=/tower" style="background:#1e3a8a;color:#fff;padding:5px 14px;border-radius:20px;font-weight:700;text-decoration:none;box-shadow:0 4px 12px rgba(30,58,138,.35);">🔐 เข้าสู่ระบบ (Admin)</a>` +
+    `<span style="background:#dcfce7;color:#15803d;padding:4px 10px;border-radius:20px;font-weight:700;">👤 ${user.name} · ${user.role}</span>` +
+    adminLink +
+    `<a href="/logout" style="background:#fee2e2;color:#b91c1c;padding:4px 12px;border-radius:20px;font-weight:700;text-decoration:none;">ออกจากระบบ</a>` +
     `</div>`
   );
 }
 
 export async function GET(request: Request) {
   const session = await auth();
-  const user = session?.user
-    ? {
-        name: session.user.name,
-        email: session.user.email,
-        role: session.user.role,
-      }
-    : null;
+  // Locked site: must be signed in (and an admin must have approved the account —
+  // inactive users are already rejected at login). Anonymous → login page.
+  if (!session?.user) {
+    return Response.redirect(new URL("/login?callbackUrl=/tower", request.url), 302);
+  }
+  const user = {
+    name: session.user.name,
+    email: session.user.email,
+    role: session.user.role,
+  };
+  // Only Planner/Admin may edit; Viewers can view only.
+  const canEdit = user.role === "PLANNER" || user.role === "ADMIN";
 
   let html: string;
   try {
@@ -68,11 +71,11 @@ export async function GET(request: Request) {
   const requestedDate = new URL(request.url).searchParams.get("date") ?? undefined;
   const state = await getDraftState(requestedDate);
 
-  // __MT_USER__ = the signed-in admin (or null). __MT_CANEDIT__ gates the
-  // in-page edit controls; writes are also enforced by the API.
+  // __MT_USER__ = the signed-in user. __MT_CANEDIT__ gates in-page edit controls
+  // by role; writes are also enforced by the API.
   const inject =
     `<script>window.__MT_USER__=${safeJson(user)};` +
-    `window.__MT_CANEDIT__=${user ? "true" : "false"};` +
+    `window.__MT_CANEDIT__=${canEdit ? "true" : "false"};` +
     `window.__MT_SEED__=${safeJson(state)};</script>`;
 
   const bar = loginBar(user);
