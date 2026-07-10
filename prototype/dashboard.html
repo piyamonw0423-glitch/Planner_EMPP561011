@@ -3660,12 +3660,16 @@ function renderCumulativeTrend(rows, period){
   const cumIssuedArr=[],cumCloseArr=[],backlogArr=[];
   issuedPer.forEach((_,i)=>{ cumIssued+=issuedPer[i]; cumClose+=closePer[i]; cumIssuedArr.push(cumIssued); cumCloseArr.push(cumClose); backlogArr.push(Math.max(0,cumIssued-cumClose)); });
 
-  // Summary tiles
-  const totalIssued=cumIssued, totalClose=cumClose, totalBacklog=Math.max(0,cumIssued-cumClose);
+  // Summary tiles = TRUE totals over ALL work orders (not the timeline cumulative),
+  // so they always equal TOTAL WO and are identical across week/month/year views.
+  // (The chart lines still show the trend over time.)
+  const totalIssued=uniq.length;
+  const totalClose=uniq.filter(r=>statusGroup(r)==='close').length;
+  const totalBacklog=Math.max(0,totalIssued-totalClose);
   document.getElementById('cumulSummary').innerHTML=[
-    {l:'WO Issued (Distinct)',n:totalIssued,c:'#2563eb'},
+    {l:'WO Issued (Total)',n:totalIssued,c:'#2563eb'},
     {l:'Close WO',n:totalClose,c:'#10b981'},
-    {l:'Backlog สะสม',n:totalBacklog,c:'#f59e0b'},
+    {l:'Backlog',n:totalBacklog,c:'#f59e0b'},
     {l:'Close Rate',n:`${totalIssued?Math.round(totalClose/totalIssued*100):0}%`,c:'#7c3aed'},
   ].map(s=>`<div class="cumul-tile"><div class="n" style="color:${s.c}">${typeof s.n==='number'?s.n.toLocaleString():s.n}</div><div class="l">${s.l}</div></div>`).join('');
 
