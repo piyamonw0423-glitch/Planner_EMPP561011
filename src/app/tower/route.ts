@@ -55,8 +55,10 @@ export async function GET(request: Request) {
     email: session.user.email,
     role: session.user.role,
   };
-  // Only Planner/Admin may edit; Viewers can view only.
+  // Planner/Admin may edit WO status + calendar (non-closed WOs); Viewers view only.
   const canEdit = user.role === "PLANNER" || user.role === "ADMIN";
+  // Only Admin may import/refresh data and use the AI Engineer.
+  const isAdmin = user.role === "ADMIN";
 
   let html: string;
   try {
@@ -76,6 +78,7 @@ export async function GET(request: Request) {
   const inject =
     `<script>window.__MT_USER__=${safeJson(user)};` +
     `window.__MT_CANEDIT__=${canEdit ? "true" : "false"};` +
+    `window.__MT_ADMIN__=${isAdmin ? "true" : "false"};` +
     `window.__MT_SEED__=${safeJson(state)};</script>`;
 
   const bar = loginBar(user);

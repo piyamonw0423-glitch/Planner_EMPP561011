@@ -15,8 +15,11 @@ export async function POST(request: Request) {
   if (!session?.user) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
-  if (ROLE_RANK[session.user.role] < ROLE_RANK.PLANNER) {
-    return Response.json({ error: "Forbidden" }, { status: 403 });
+  if (session.user.role !== "ADMIN") {
+    return Response.json(
+      { error: "เฉพาะ Admin เท่านั้นที่นำเข้า/รีเฟรชข้อมูลได้" },
+      { status: 403 }
+    );
   }
 
   const formData = await request.formData();

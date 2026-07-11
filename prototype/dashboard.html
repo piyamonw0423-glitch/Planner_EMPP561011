@@ -867,6 +867,7 @@
             <div class="ov-filter-group"><label>Priority</label><div class="msf" data-key="priority"></div></div>
             <div class="ov-filter-group"><label>Team</label><div class="msf" data-key="team"></div></div>
             <div class="ov-filter-group"><label>Supervisor</label><div class="msf" data-key="supervisor"></div></div>
+            <div class="ov-filter-group"><label>Work Ref Code</label><div class="msf" data-key="workRefCode"></div></div>
             <div class="ov-filter-group"><label>Data Date</label><div class="msf" data-key="dataDate"></div></div>
             <div class="ov-filter-group"><label>Date From</label><input type="date" id="ovFrom"></div>
             <div class="ov-filter-group"><label>Date To</label><input type="date" id="ovTo"></div>
@@ -2096,7 +2097,7 @@ async function mtImport(formData, statusEl){
   return data;
 }
 async function mtImportFile(file){
-  if(!window.__MT_CANEDIT__){ alert('🔐 กรุณาเข้าสู่ระบบ (Admin) ก่อนอัปเดตข้อมูล'); return; }
+  if(!window.__MT_ADMIN__){ alert('🔒 เฉพาะ Admin เท่านั้นที่นำเข้า/รีเฟรชข้อมูลได้'); return; }
   const fd = new FormData(); fd.append('file', file);
   try{
     mtToast('⏳ กำลังนำเข้าไฟล์ขึ้นระบบส่วนกลาง...','#f59e0b');
@@ -2106,7 +2107,7 @@ async function mtImportFile(file){
   }catch(err){ alert('❌ นำเข้าไม่สำเร็จ: '+err.message); }
 }
 async function mtImportUrl(url, statusEl){
-  if(!window.__MT_CANEDIT__){ alert('🔐 กรุณาเข้าสู่ระบบ (Admin) ก่อนอัปเดตข้อมูล'); return; }
+  if(!window.__MT_ADMIN__){ alert('🔒 เฉพาะ Admin เท่านั้นที่นำเข้า/รีเฟรชข้อมูลได้'); return; }
   const fd = new FormData(); fd.append('url', url);
   try{
     if(statusEl){ statusEl.innerHTML='⏳ กำลังโหลดข้อมูลใหม่ (เฉพาะวันที่ยังไม่มี)...'; statusEl.style.color='#f59e0b'; }
@@ -2455,7 +2456,7 @@ function openWoDetail(wo){
   });
 
   document.getElementById('saveUpdateBtn').addEventListener('click', ()=>{
-    if(window.__MT_SEED__ && !window.__MT_CANEDIT__){ mtToast('🔐 กรุณาเข้าสู่ระบบ (Admin) เพื่ออัปเดตสถานะ','#dc2626'); return; }
+    if(!mtCanEditWo(wo)) return;
     const remark = document.getElementById('remarkInput').value.trim();
     const who = document.getElementById('whoInput').value.trim() || 'ผู้ใช้งาน';
     let progressVal = parseInt(document.getElementById('progressInput').value, 10);
@@ -2510,7 +2511,20 @@ function refreshAll(){
    ADMIN: LOGIN + UPLOAD
 ========================================================= */
 const ADMIN_PASSCODE = 'admin123'; // เปลี่ยนรหัสได้ใน Settings → เปลี่ยนรหัสผ่าน
-let isAdmin = false;
+// In backend mode admin status comes from the real signed-in role; the local
+// passcode only applies to standalone use.
+let isAdmin = (typeof window!=='undefined' && window.__MT_ADMIN__ === true);
+// Is a Work Order Closed? (Closed WOs can't be updated by non-admins.)
+function mtIsClosed(wo){
+  try{ var r=RAW_DATA.find(function(x){return String(x.wo)===String(wo);}); return !!(r && typeof statusGroup==='function' && statusGroup(r)==='close'); }catch(e){ return false; }
+}
+// Guard a WO edit: must have edit rights, and (unless admin) the WO must be open.
+function mtCanEditWo(wo){
+  if(!window.__MT_SEED__) return true; // standalone
+  if(!window.__MT_CANEDIT__){ mtToast('🔐 กรุณาเข้าสู่ระบบเพื่ออัปเดต','#dc2626'); return false; }
+  if(!window.__MT_ADMIN__ && mtIsClosed(wo)){ mtToast('🔒 WO นี้ปิดงานแล้ว (Closed) — แก้ไขไม่ได้','#dc2626'); return false; }
+  return true;
+}
 const acancelEl=document.getElementById('adminCancel'); if(acancelEl) acancelEl.addEventListener('click', ()=>{ const ov=document.getElementById('adminOverlay'); if(ov) ov.classList.remove('show'); });
 document.getElementById('adminEnter').addEventListener('click', ()=>{
   const val = document.getElementById('adminPass').value;
@@ -2568,6 +2582,9 @@ document.getElementById('changePassBtn').addEventListener('click', ()=>{
 
 // Show login gate (not panel) when Settings is opened by non-admin
 document.getElementById('btnAdmin').addEventListener('click', ()=>{
+  // Backend mode: Settings (import/refresh) is Admin-only; the local passcode
+  // is only for standalone use.
+  if (window.__MT_SEED__ && !window.__MT_ADMIN__){ mtToast('🔒 เฉพาะ Admin เท่านั้น','#dc2626'); return; }
   if (isAdmin){
     document.getElementById('settingsLoginStep').style.display = 'none';
     document.getElementById('settingsPanel').style.display = 'block';
@@ -2781,6 +2798,7 @@ function parseRows(json){
       supervisor: pick(row, ['Namesup','Supervisor','NameSup','NAMESUP','Planner Group','PlannerGroup','Resp Person','RespPerson']) || '',
       workLocation: pick(row, ['WO_Worklocation','WO_WorkLocation','Work Location','WorkLocation']) || '',
       woType: pick(row, ['WO_Type','PM_Type','Order Type','WOType','Type','MaintenanceType','Activity Type','PM Type']) || '',
+      workRefCode: pick(row, ['Work Reference Code','WorkRefCode','Work Ref Code','Reference Code','WO_RefCode']) || '',
       plannedHours: parseFloat(pick(row, ['Planned Hours','PlannedHours','Plan Hours','Hours','Std Hrs','StdHrs','Work Hours','WO_PlannedHrs'])||0)||0,
       actualHours: parseFloat(pick(row, ['Actual Hours','ActualHours','Act Hours','Actual Labor','ActualLabor','Act Hr','ActHours','WO_ActualHrs'])||0)||0
     };
@@ -2956,6 +2974,8 @@ function initOverviewFilters(){
   msfInit('team', opt(teams), renderOverview);
   msfInit('supervisor', opt(sups), renderOverview);
   msfInit('workType', opt(wTypes), renderOverview);
+  const refCodes = Array.from(new Set(RAW_DATA.map(r=> (r.workRefCode||'').toString().trim()).filter(Boolean))).sort();
+  msfInit('workRefCode', opt(refCodes), renderOverview);
   // Selecting a Data_Date reloads the page with that snapshot (server-driven).
   msfInit('dataDate', opt(dataDates), function(){ var sel=msfGet('dataDate'); var d=sel[sel.length-1]; if(d) mtGoToDate(d); });
   if(seedMeta.selectedDate && MSF.dataDate){ MSF.dataDate.selected=new Set([seedMeta.selectedDate]); msfRender('dataDate'); }
@@ -2972,7 +2992,7 @@ function initOverviewFilters(){
   document.getElementById('ovFrom').addEventListener('change', renderOverview);
   document.getElementById('ovTo').addEventListener('change', renderOverview);
   document.getElementById('ovReset').addEventListener('click', ()=>{
-    ['plant','status','priority','team','supervisor','workType'].forEach(k=>{ if(typeof msfClear==='function') msfClear(k); });
+    ['plant','status','priority','team','supervisor','workType','workRefCode'].forEach(k=>{ if(typeof msfClear==='function') msfClear(k); });
     document.getElementById('ovFrom').value = '';
     document.getElementById('ovTo').value = '';
     renderOverview();
@@ -3015,6 +3035,7 @@ function getOverviewFilteredRows(){
   const teams    = (typeof msfGet==='function') ? msfGet('team')       : [];
   const sups     = (typeof msfGet==='function') ? msfGet('supervisor') : [];
   const wTypes   = (typeof msfGet==='function') ? msfGet('workType')   : [];
+  const refCodes = (typeof msfGet==='function') ? msfGet('workRefCode'): [];
   // Data_Date is server-driven (each snapshot is loaded separately), not a client filter.
   const from = document.getElementById('ovFrom').value ? new Date(document.getElementById('ovFrom').value) : null;
   const to = document.getElementById('ovTo').value ? new Date(document.getElementById('ovTo').value) : null;
@@ -3025,6 +3046,7 @@ function getOverviewFilteredRows(){
     if (sups.length   && !sups.includes((r.supervisor||'').toString().trim())) return false;
     if (prios.length  && !prios.includes(String(r.priority).trim()))       return false;
     if (wTypes.length && !wTypes.includes(detectCategory(r)))              return false;
+    if (refCodes.length && !refCodes.includes((r.workRefCode||'').toString().trim())) return false;
     if (from && r.targetStart && new Date(r.targetStart) < from) return false;
     if (to && r.targetStart && new Date(r.targetStart) > to) return false;
     if (statuses.length && !statuses.some(s=>ovStatusMatch(r, s))) return false;
@@ -4258,6 +4280,7 @@ function drawCalGrid(){
       const origDay = parseInt(e.dataTransfer.getData('origDay'));
       const newDay  = parseInt(cell.getAttribute('data-day'));
       if (!wo || newDay===origDay) return;
+      if (window.__MT_SEED__ && !window.__MT_CANEDIT__){ showToast('🔐 กรุณาเข้าสู่ระบบเพื่อแก้ Calendar','#dc2626'); return; }
       const row = RAW_DATA.find(r=>r.wo===wo);
       if (!row) return;
       const sg = statusGroup(row);
@@ -5451,7 +5474,7 @@ function calModalSelectStatus(el){
   }
 }
 function saveCalWoModal(wo){
-  if(window.__MT_SEED__ && !window.__MT_CANEDIT__){ mtToast('🔐 กรุณาเข้าสู่ระบบ (Admin) เพื่ออัปเดตสถานะ','#dc2626'); return; }
+  if(!mtCanEditWo(wo)) return;
   const chosenEl = document.querySelector('#calModalQuGrid .qu-item[style*="border-color"]:not([style*="#e2e8f0"])') ||
                    document.querySelector('#calModalQuGrid .qu-item.sel');
   const chosenKey = chosenEl ? chosenEl.getAttribute('data-key') : 'notstart';
@@ -6911,6 +6934,11 @@ try {
   const lm = document.getElementById('loadingMsg');
   if(lm) lm.textContent = 'โหลดข้อมูล...';
   loadAll();
+  // Role-based UI: hide Admin-only nav (AI Engineer, Settings) for non-admins.
+  if (window.__MT_SEED__ && !window.__MT_ADMIN__){
+    document.querySelectorAll('.nav-item[data-page="aiEngineerPage"]').forEach(function(el){ el.style.display='none'; });
+    var _se=document.getElementById('btnAdmin'); if(_se) _se.style.display='none';
+  }
   if(lm) lm.textContent = 'เริ่มต้นระบบ...';
   setTimeout(renderNotifications, 500);
   renderNotifications();

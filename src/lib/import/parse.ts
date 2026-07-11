@@ -14,6 +14,7 @@ export type ParsedWorkOrder = {
   supervisor: string | null;
   workLocation: string | null;
   woType: string | null;
+  workRefCode: string | null;
   targetStart: Date | null;
   targetFinish: Date | null;
   actualStart: Date | null;
@@ -123,6 +124,13 @@ export function parseRows(json: RawRow[]): ParsedWorkOrder[] {
           "MaintenanceType",
           "Activity Type",
           "PM Type",
+        ]),
+        workRefCode: pickString(row, [
+          "Work Reference Code",
+          "WorkRefCode",
+          "Work Ref Code",
+          "Reference Code",
+          "WO_RefCode",
         ]),
         targetStart: pickDate(row, ["Target Start"]),
         targetFinish: pickDate(row, ["Target Finish"]),

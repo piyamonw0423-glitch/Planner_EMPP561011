@@ -42,12 +42,23 @@ export async function POST(request: Request) {
   const remark = (body.remark || "").trim() || null;
 
   // Guard: the WorkOrderUpdate FK requires the WorkOrder to exist.
-  const exists = await prisma.workOrder.findUnique({
+  const existing = await prisma.workOrder.findUnique({
     where: { wo },
-    select: { wo: true },
+    select: { wo: true, status: true },
   });
-  if (!exists) {
+  if (!existing) {
     return Response.json({ error: `ไม่พบ Work Order: ${wo}` }, { status: 404 });
+  }
+  // Only Admin may edit a Closed WO; everyone else is limited to non-closed WOs.
+  const CLOSED = new Set(["CLOSE", "FORCED_CLOSE", "CAN"]);
+  if (
+    session.user.role !== "ADMIN" &&
+    CLOSED.has((existing.status || "").trim().toUpperCase())
+  ) {
+    return Response.json(
+      { error: "WO นี้ปิดงานแล้ว (Closed) — แก้ไขไม่ได้" },
+      { status: 403 }
+    );
   }
 
   await prisma.workOrderUpdate.upsert({

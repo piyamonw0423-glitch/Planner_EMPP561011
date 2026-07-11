@@ -49,6 +49,7 @@ export type DraftWoRow = {
   supervisor: string;
   workLocation: string;
   woType: string;
+  workRefCode: string;
   plannedHours: number;
   actualHours: number;
 };
@@ -101,6 +102,7 @@ type WoLike = {
   supervisor: string | null;
   workLocation: string | null;
   woType: string | null;
+  workRefCode: string | null;
   plannedHours: number;
   actualHours: number;
 };
@@ -125,6 +127,7 @@ function mapRow(r: WoLike): DraftWoRow {
     supervisor: s(r.supervisor),
     workLocation: s(r.workLocation),
     woType: s(r.woType),
+    workRefCode: s(r.workRefCode),
     plannedHours: r.plannedHours,
     actualHours: r.actualHours,
   };

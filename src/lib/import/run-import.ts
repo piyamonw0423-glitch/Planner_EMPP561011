@@ -17,13 +17,13 @@ async function rebuildWorkOrdersFromSnapshots() {
   await prisma.$executeRawUnsafe(`
     INSERT INTO work_orders (
       wo, "desc", location, asset, plant, team, priority, "statusAJ", status,
-      overdue, supervisor, "workLocation", "woType", "targetStart",
+      overdue, supervisor, "workLocation", "woType", "workRefCode", "targetStart",
       "targetFinish", "actualStart", "actualFinish", "dataDate",
       "plannedHours", "actualHours", "importBatchId", "createdAt", "updatedAt"
     )
     SELECT DISTINCT ON (wo)
       wo, "desc", location, asset, plant, team, priority, "statusAJ", status,
-      overdue, supervisor, "workLocation", "woType", "targetStart",
+      overdue, supervisor, "workLocation", "woType", "workRefCode", "targetStart",
       "targetFinish", "actualStart", "actualFinish", "dataDate",
       "plannedHours", "actualHours", "importBatchId", now(), now()
     FROM work_order_snapshots
@@ -33,7 +33,7 @@ async function rebuildWorkOrdersFromSnapshots() {
       plant = EXCLUDED.plant, team = EXCLUDED.team, priority = EXCLUDED.priority,
       "statusAJ" = EXCLUDED."statusAJ", status = EXCLUDED.status, overdue = EXCLUDED.overdue,
       supervisor = EXCLUDED.supervisor, "workLocation" = EXCLUDED."workLocation",
-      "woType" = EXCLUDED."woType", "targetStart" = EXCLUDED."targetStart",
+      "woType" = EXCLUDED."woType", "workRefCode" = EXCLUDED."workRefCode", "targetStart" = EXCLUDED."targetStart",
       "targetFinish" = EXCLUDED."targetFinish", "actualStart" = EXCLUDED."actualStart",
       "actualFinish" = EXCLUDED."actualFinish", "dataDate" = EXCLUDED."dataDate",
       "plannedHours" = EXCLUDED."plannedHours", "actualHours" = EXCLUDED."actualHours",
@@ -116,14 +116,14 @@ async function upsertBatch(rows: ParsedWorkOrder[], importBatchId: string) {
   const values = Prisma.join(
     rows.map(
       (r) =>
-        Prisma.sql`(${r.wo}, ${r.desc}, ${r.location}, ${r.asset}, ${r.plant}, ${r.team}, ${r.priority}, ${r.statusAJ}, ${r.status}, ${r.overdue}, ${r.supervisor}, ${r.workLocation}, ${r.woType}, ${r.targetStart}, ${r.targetFinish}, ${r.actualStart}, ${r.actualFinish}, ${r.dataDate}, ${r.plannedHours}, ${r.actualHours}, ${importBatchId}, now(), now())`
+        Prisma.sql`(${r.wo}, ${r.desc}, ${r.location}, ${r.asset}, ${r.plant}, ${r.team}, ${r.priority}, ${r.statusAJ}, ${r.status}, ${r.overdue}, ${r.supervisor}, ${r.workLocation}, ${r.woType}, ${r.workRefCode}, ${r.targetStart}, ${r.targetFinish}, ${r.actualStart}, ${r.actualFinish}, ${r.dataDate}, ${r.plannedHours}, ${r.actualHours}, ${importBatchId}, now(), now())`
     )
   );
 
   await prisma.$executeRaw`
     INSERT INTO work_orders (
       wo, "desc", location, asset, plant, team, priority, "statusAJ", status, overdue,
-      supervisor, "workLocation", "woType", "targetStart", "targetFinish",
+      supervisor, "workLocation", "woType", "workRefCode", "targetStart", "targetFinish",
       "actualStart", "actualFinish", "dataDate", "plannedHours", "actualHours",
       "importBatchId", "createdAt", "updatedAt"
     )
@@ -141,6 +141,7 @@ async function upsertBatch(rows: ParsedWorkOrder[], importBatchId: string) {
       supervisor = EXCLUDED.supervisor,
       "workLocation" = EXCLUDED."workLocation",
       "woType" = EXCLUDED."woType",
+      "workRefCode" = EXCLUDED."workRefCode",
       "targetStart" = EXCLUDED."targetStart",
       "targetFinish" = EXCLUDED."targetFinish",
       "actualStart" = EXCLUDED."actualStart",
@@ -162,7 +163,7 @@ async function upsertSnapshotBatch(
   const values = Prisma.join(
     rows.map(
       (r) =>
-        Prisma.sql`(gen_random_uuid()::text, ${r.wo}, ${r.dataDate}, ${r.desc}, ${r.location}, ${r.asset}, ${r.plant}, ${r.team}, ${r.priority}, ${r.statusAJ}, ${r.status}, ${r.overdue}, ${r.supervisor}, ${r.workLocation}, ${r.woType}, ${r.targetStart}, ${r.targetFinish}, ${r.actualStart}, ${r.actualFinish}, ${r.plannedHours}, ${r.actualHours}, ${importBatchId}, now())`
+        Prisma.sql`(gen_random_uuid()::text, ${r.wo}, ${r.dataDate}, ${r.desc}, ${r.location}, ${r.asset}, ${r.plant}, ${r.team}, ${r.priority}, ${r.statusAJ}, ${r.status}, ${r.overdue}, ${r.supervisor}, ${r.workLocation}, ${r.woType}, ${r.workRefCode}, ${r.targetStart}, ${r.targetFinish}, ${r.actualStart}, ${r.actualFinish}, ${r.plannedHours}, ${r.actualHours}, ${importBatchId}, now())`
     )
   );
 
@@ -170,7 +171,7 @@ async function upsertSnapshotBatch(
     INSERT INTO work_order_snapshots (
       id, wo, "dataDate", "desc", location, asset, plant, team, priority,
       "statusAJ", status, overdue, supervisor, "workLocation", "woType",
-      "targetStart", "targetFinish", "actualStart", "actualFinish",
+      "workRefCode", "targetStart", "targetFinish", "actualStart", "actualFinish",
       "plannedHours", "actualHours", "importBatchId", "createdAt"
     )
     VALUES ${values}
@@ -187,6 +188,7 @@ async function upsertSnapshotBatch(
       supervisor = EXCLUDED.supervisor,
       "workLocation" = EXCLUDED."workLocation",
       "woType" = EXCLUDED."woType",
+      "workRefCode" = EXCLUDED."workRefCode",
       "targetStart" = EXCLUDED."targetStart",
       "targetFinish" = EXCLUDED."targetFinish",
       "actualStart" = EXCLUDED."actualStart",
