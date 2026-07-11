@@ -82,6 +82,24 @@ export type DraftState = {
 const s = (v: string | null | undefined) => v ?? "";
 const iso = (d: Date | null | undefined) => (d ? d.toISOString() : null);
 
+// Neon (free tier) auto-suspends when idle; the first query after a wake can fail
+// with P1001 "DatabaseNotReachable" before the compute is ready. Retry transient
+// connection errors a few times so the page doesn't 500 on a cold database.
+async function withDbRetry<T>(fn: () => Promise<T>, tries = 4, delayMs = 700): Promise<T> {
+  let lastErr: unknown;
+  for (let i = 0; i < tries; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      lastErr = e;
+      const code = (e as { code?: string })?.code;
+      if (code !== "P1001" && code !== "P1017") throw e; // not a cold-start error
+      await new Promise((r) => setTimeout(r, delayMs * (i + 1)));
+    }
+  }
+  throw lastErr;
+}
+
 // Fields shared by WorkOrder and WorkOrderSnapshot (same scalar columns).
 type WoLike = {
   wo: string;
@@ -139,7 +157,7 @@ function mapRow(r: WoLike): DraftWoRow {
 // table if no snapshots exist yet (e.g. before the first snapshot-aware import).
 export async function getDraftState(requestedDate?: string): Promise<DraftState> {
   const [distinctDates, updates, activity, lastBatch, appDataRows] =
-    await Promise.all([
+    await withDbRetry(() => Promise.all([
       prisma.workOrderSnapshot.findMany({
         distinct: ["dataDate"],
         select: { dataDate: true },
@@ -154,7 +172,7 @@ export async function getDraftState(requestedDate?: string): Promise<DraftState>
       }),
       prisma.importBatch.findFirst({ orderBy: { createdAt: "desc" } }),
       prisma.appData.findMany(),
-    ]);
+    ]));
 
   const appData: Record<string, unknown> = {};
   for (const r of appDataRows) appData[r.key] = r.value;
@@ -169,16 +187,16 @@ export async function getDraftState(requestedDate?: string): Promise<DraftState>
 
   let workOrders: DraftWoRow[];
   if (selectedDate) {
-    const snaps = await prisma.workOrderSnapshot.findMany({
+    const snaps = await withDbRetry(() => prisma.workOrderSnapshot.findMany({
       where: { dataDate: new Date(`${selectedDate}T00:00:00.000Z`) },
       orderBy: { targetStart: "desc" },
-    });
+    }));
     workOrders = snaps.map(mapRow);
   } else {
     // No snapshots yet — fall back to the deduped current WorkOrder table.
-    const orders = await prisma.workOrder.findMany({
+    const orders = await withDbRetry(() => prisma.workOrder.findMany({
       orderBy: { targetStart: "desc" },
-    });
+    }));
     workOrders = orders.map(mapRow);
   }
 

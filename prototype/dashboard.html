@@ -709,6 +709,10 @@
               <label style="font-size:9.5px;color:#93c5fd;font-weight:700;letter-spacing:.5px;text-transform:uppercase;">Work Location</label>
               <select id="wpWorkLocation" style="background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);border-radius:8px;padding:6px 10px;font-size:12px;color:#fff;"><option value="">ทั้งหมด</option></select>
             </div>
+            <div style="display:flex;flex-direction:column;gap:3px;min-width:160px;">
+              <label style="font-size:9.5px;color:#93c5fd;font-weight:700;letter-spacing:.5px;text-transform:uppercase;">Work Ref Code</label>
+              <select id="wpRefCode" style="background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);border-radius:8px;padding:6px 10px;font-size:12px;color:#fff;"><option value="">ทั้งหมด</option></select>
+            </div>
             <button style="background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.2);border-radius:8px;color:#e0e7ff;font-size:12px;font-weight:600;padding:6px 14px;cursor:pointer;" id="wpFilterReset">Reset</button>
             <span id="wpFilterInfo" style="font-size:11.5px;color:#93c5fd;align-self:flex-end;"></span>
           </div>
@@ -1049,6 +1053,7 @@
               <option value="3">P3 🔵</option>
               <option value="4">P4 ⚪</option>
             </select>
+            <select class="cal-filter-select" id="calFilterRefCode"><option value="">All Ref Code</option></select>
           </div>
         </div>
         <div class="cal-legends" id="calLegends">
@@ -1278,6 +1283,7 @@
           <div><label class="filter-label">Status</label><select id="woFStatus"><option value="">All</option></select></div>
           <div><label class="filter-label">Overdue</label><select id="woFOverdue"><option value="">All</option><option value="Overdue">Overdue</option><option value="Ondue">On Due</option></select></div>
           <div><label class="filter-label">Supervisor</label><select id="woFSup"><option value="">All</option></select></div>
+          <div><label class="filter-label">Work Ref Code</label><select id="woFRefCode"><option value="">All</option></select></div>
           <button class="topbtn" id="woReset">Reset</button>
           <button class="topbtn primary" id="woExport">⬇ Export Excel</button>
         </div>
@@ -3061,6 +3067,7 @@ const OV_EMOJI = {
   'AUTO CM':       {e:'🤖', bg:'linear-gradient(135deg,#4c1d95,#7c3aed)', shadow:'rgba(124,58,237,.45)'},
   'ECC Emergency': {e:'⚠️', bg:'linear-gradient(135deg,#7f1d1d,#dc2626)', shadow:'rgba(220,38,38,.45)'},
   'TOTAL':         {e:'📊', bg:'linear-gradient(135deg,#1e1b4b,#4f46e5)', shadow:'rgba(79,70,229,.45)'},
+  'OTHER':         {e:'📦', bg:'linear-gradient(135deg,#334155,#64748b)', shadow:'rgba(100,116,139,.45)'},
 };
 const ovTeamMeta = {
   'MECH CM': {color:'#2563eb', bg:'#dbeafe', stripe:'#2563eb'},
@@ -3083,7 +3090,11 @@ function renderOverview(){
     teamGroups[team].push(r);
   });
   // Show the main teams (top 4 by volume) so MECH/ELEC/AUTO CM all appear, not just the top 3.
-  const teams = Object.keys(teamGroups).sort((a,b)=> teamGroups[b].length - teamGroups[a].length).slice(0,4);
+  // Everything else is folded into a single OTHER card so the team cards always
+  // add up to the TOTAL (avoids the "cards don't sum to total WO" mismatch).
+  const allTeams = Object.keys(teamGroups).sort((a,b)=> teamGroups[b].length - teamGroups[a].length);
+  const teams = allTeams.slice(0,4);
+  const restTeams = allTeams.slice(4);
   const kpiRow = document.getElementById('ovKpiRow');
 
   function buildCard(team, list, isTotal, stripeColor, bg, color){
@@ -3101,7 +3112,8 @@ function renderOverview(){
     const healthColor = ratio>70?'#ef4444':ratio>40?'#f59e0b':'#10b981';
     const healthBg = ratio>70?'rgba(254,226,226,.3)':ratio>40?'rgba(254,243,199,.3)':'rgba(209,250,229,.3)';
     const healthLabel = ratio>70?'CRITICAL':ratio>40?'WARNING':'HEALTHY';
-    const em = OV_EMOJI[isTotal?'TOTAL':team] || OV_EMOJI['MECH CM'];
+    const emKey = isTotal ? 'TOTAL' : (team.startsWith('OTHER') ? 'OTHER' : team);
+    const em = OV_EMOJI[emKey] || OV_EMOJI['MECH CM'];
     const iconHtml = `<div class="ov-emoji-icon" style="background:${em.bg};box-shadow:0 4px 12px ${em.shadow};">${em.e}</div>`;
 
     // Trend % (last 4w vs prev 4w) and weekly sparkline (last 8 weeks)
@@ -3171,8 +3183,14 @@ function renderOverview(){
     const meta = ovTeamMeta[team] || {color:'#2563eb', bg:'#dbeafe', stripe:'#2563eb'};
     return buildCard(team, list, false, meta.stripe, meta.bg, meta.color);
   }).join('');
+  // OTHER = every remaining team combined, so team cards + OTHER = TOTAL.
+  let otherCard = '';
+  if (restTeams.length){
+    const otherList = restTeams.reduce((acc,t)=> acc.concat(teamGroups[t]), []);
+    otherCard = buildCard(`OTHER (${restTeams.length} ทีม)`, otherList, false, '#64748b', '#f1f5f9', '#475569');
+  }
   const totalCard = buildCard('TOTAL (ALL CM)', rows, true, '#312e81', '#eef2ff', '#3730a3');
-  kpiRow.innerHTML = cardsHtml + totalCard;
+  kpiRow.innerHTML = cardsHtml + otherCard + totalCard;
   const ovLuEl=document.getElementById('ovLastUpdate'); if(ovLuEl) ovLuEl.textContent = 'Last Update : ' + new Date().toLocaleString('th-TH', {day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit'});
   renderOverviewTrend(rows);
   renderOverviewTable(rows);
@@ -3691,14 +3709,14 @@ function renderCumulativeTrend(rows, period){
   document.getElementById('cumulSummary').innerHTML=[
     {l:'WO Issued (Total)',n:totalIssued,c:'#2563eb'},
     {l:'Close WO',n:totalClose,c:'#10b981'},
-    {l:'Backlog',n:totalBacklog,c:'#f59e0b'},
+    {l:'OPEN (ยังไม่ปิด)',n:totalBacklog,c:'#f59e0b'},
     {l:'Close Rate',n:`${totalIssued?Math.round(totalClose/totalIssued*100):0}%`,c:'#7c3aed'},
   ].map(s=>`<div class="cumul-tile"><div class="n" style="color:${s.c}">${typeof s.n==='number'?s.n.toLocaleString():s.n}</div><div class="l">${s.l}</div></div>`).join('');
 
   document.getElementById('cumulLegend').innerHTML=`
     <span class="chart-legend-item"><span class="dot" style="background:#3b82f6"></span>WO Issued (สะสม)</span>
     <span class="chart-legend-item"><span class="dot line" style="background:#10b981"></span>Close (สะสม)</span>
-    <span class="chart-legend-item"><span class="dot line" style="background:#f59e0b"></span>Backlog (สะสม)</span>`;
+    <span class="chart-legend-item"><span class="dot line" style="background:#f59e0b"></span>Open / ยังไม่ปิด (สะสม)</span>`;
 
   if (typeof Chart==='undefined') return;
   if (ovCumulChartObj) ovCumulChartObj.destroy();
@@ -3832,19 +3850,22 @@ function initWpFilters(){
   const supervisors = Array.from(new Set(RAW_DATA.map(r=>(r.supervisor||'').toString().trim()).filter(Boolean))).sort();
   const locs = Array.from(new Set(RAW_DATA.map(r=>(r.workLocation||'').toString().trim()).filter(Boolean))).sort();
   const plants = Array.from(new Set(RAW_DATA.map(r=>(r.plant||'').toString().trim()).filter(Boolean))).sort();
+  const refCodes = Array.from(new Set(RAW_DATA.map(r=>(r.workRefCode||'').toString().trim()).filter(Boolean))).sort();
   const wpPlantEl = document.getElementById('wpPlant');
   if (wpPlantEl) { wpPlantEl.innerHTML = '<option value="">ทั้งหมด</option>'+plants.map(p=>`<option value="${p}">${p}</option>`).join(''); }
   document.getElementById('wpSupervisor').innerHTML = '<option value="">ทั้งหมด</option>'+supervisors.map(s=>`<option value="${s}">${s}</option>`).join('');
   document.getElementById('wpWorkLocation').innerHTML = '<option value="">ทั้งหมด</option>'+locs.map(l=>`<option value="${l}">${l}</option>`).join('');
+  const wpRefEl = document.getElementById('wpRefCode');
+  if (wpRefEl) { wpRefEl.innerHTML = '<option value="">ทั้งหมด</option>'+refCodes.map(c=>`<option value="${c}">${c}</option>`).join(''); }
   const triggerRefresh = ()=>{ const r=getWpFilteredRows(); renderKpis(r); renderWorkload(r); renderDonut(r); renderAging(r); renderTodayPlan(r); renderKanban(r); renderAlerts(r); };
   if (!document.getElementById('wpSupervisor')._wpInited){
     document.getElementById('wpSupervisor')._wpInited=true;
-    ['wpSupervisor','wpWorkLocation','wpPlant'].forEach(id=>{
+    ['wpSupervisor','wpWorkLocation','wpPlant','wpRefCode'].forEach(id=>{
       const el=document.getElementById(id);
       if(el) el.addEventListener('change', triggerRefresh);
     });
     document.getElementById('wpFilterReset').addEventListener('click', ()=>{
-      ['wpSupervisor','wpWorkLocation','wpPlant'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
+      ['wpSupervisor','wpWorkLocation','wpPlant','wpRefCode'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
       refreshAll();
     });
   }
@@ -3855,12 +3876,15 @@ function getWpFilteredRows(){
   const workLoc = document.getElementById('wpWorkLocation').value;
   const wpPlantEl = document.getElementById('wpPlant');
   const plant = wpPlantEl ? wpPlantEl.value : '';
+  const wpRefEl = document.getElementById('wpRefCode');
+  const refCode = wpRefEl ? wpRefEl.value : '';
   let filtered = allRows;
   if (supervisor) filtered = filtered.filter(r=> (r.supervisor||'') === supervisor);
   if (workLoc) filtered = filtered.filter(r=> (r.workLocation||'') === workLoc);
   if (plant) filtered = filtered.filter(r=> (r.plant||'').toString().trim() === plant);
+  if (refCode) filtered = filtered.filter(r=> (r.workRefCode||'').toString().trim() === refCode);
   const info = document.getElementById('wpFilterInfo');
-  if (info){ info.textContent = (supervisor||workLoc||plant) ? `แสดง ${filtered.length} จาก ${allRows.length} รายการ` : ''; }
+  if (info){ info.textContent = (supervisor||workLoc||plant||refCode) ? `แสดง ${filtered.length} จาก ${allRows.length} รายการ` : ''; }
   return filtered;
 }
 
@@ -3898,9 +3922,12 @@ function renderCalendar(){
   const plants = Array.from(new Set(RAW_DATA.map(r=>(r.plant||'').trim()).filter(Boolean))).sort();
   const sups   = Array.from(new Set(RAW_DATA.map(r=>(r.supervisor||'').trim()).filter(Boolean))).sort();
   const teams  = Array.from(new Set(RAW_DATA.map(r=>(r.team||'').trim()).filter(Boolean))).sort();
+  const frSel = document.getElementById('calFilterRefCode');
+  const refCodes = Array.from(new Set(RAW_DATA.map(r=>(r.workRefCode||'').trim()).filter(Boolean))).sort();
   fpSel.innerHTML = '<option value="">All Plants</option>'+plants.map(p=>`<option value="${p}">${p}</option>`).join('');
   fsSel.innerHTML = '<option value="">All Supervisors</option>'+sups.map(s=>`<option value="${s}">${s}</option>`).join('');
   ftSel.innerHTML = '<option value="">All Teams</option>'+teams.map(t=>`<option value="${t}">${t}</option>`).join('');
+  if (frSel){ frSel.innerHTML = '<option value="">All Ref Code</option>'+refCodes.map(c=>`<option value="${c}">${c}</option>`).join(''); }
 
   // Populate year dropdowns from data
   const yearDates = RAW_DATA.map(r=>r.targetStart||r.actualStart).filter(Boolean).map(d=>new Date(d).getFullYear());
@@ -3931,7 +3958,7 @@ function renderCalendar(){
 
   if (!fpSel._inited){
     fpSel._inited = true;
-    ['calFilterPlant','calFilterSup','calFilterTeam','calFilterPriority'].forEach(id=>{
+    ['calFilterPlant','calFilterSup','calFilterTeam','calFilterPriority','calFilterRefCode'].forEach(id=>{
       const el=document.getElementById(id); if(el) el.addEventListener('change', ()=>{ calViewMode==='month' ? drawCalGrid() : drawYearOverview(); });
     });
     document.getElementById('calPrev').addEventListener('click', ()=>{ calMonth--; if(calMonth<0){calMonth=11;calYear--;} syncJumpSelectors(); drawCalGrid(); });
@@ -3974,11 +4001,13 @@ function drawYearOverview(){
   const plant = document.getElementById('calFilterPlant').value;
   const sup   = document.getElementById('calFilterSup').value;
   const team  = document.getElementById('calFilterTeam').value;
+  const refCode = (document.getElementById('calFilterRefCode')||{}).value||'';
 
   const rows = RAW_DATA.filter(r=>{
     if (plant && (r.plant||'').trim()!==plant) return false;
     if (sup   && (r.supervisor||'').trim()!==sup) return false;
     if (team  && (r.team||'').trim()!==team) return false;
+    if (refCode && (r.workRefCode||'').trim()!==refCode) return false;
     return true;
   });
 
@@ -4171,11 +4200,13 @@ function drawCalGrid(){
   const plant = document.getElementById('calFilterPlant').value;
   const sup = document.getElementById('calFilterSup').value;
   const team = document.getElementById('calFilterTeam').value;
+  const refCode = (document.getElementById('calFilterRefCode')||{}).value||'';
   const cmlEl=document.getElementById('calMonthLabel'); if(cmlEl) cmlEl.textContent = new Date(calYear,calMonth,1).toLocaleDateString('th-TH',{month:'long',year:'numeric'});
   const rows = RAW_DATA.filter(r=>{
     if (plant && (r.plant||'').trim()!==plant) return false;
     if (sup && (r.supervisor||'').trim()!==sup) return false;
     if (team && (r.team||'').trim()!==team) return false;
+    if (refCode && (r.workRefCode||'').trim()!==refCode) return false;
     return true;
   });
   const byDay = {};
@@ -4395,11 +4426,13 @@ function getCalFilteredRows(){
   const sup=document.getElementById('calFilterSup').value;
   const team=document.getElementById('calFilterTeam').value;
   const pri=(document.getElementById('calFilterPriority')||{}).value||'';
+  const refCode=(document.getElementById('calFilterRefCode')||{}).value||'';
   return RAW_DATA.filter(r=>{
     if(plant&&(r.plant||'').trim()!==plant)return false;
     if(sup&&(r.supervisor||'').trim()!==sup)return false;
     if(team&&(r.team||'').trim()!==team)return false;
     if(pri&&String(r.priority||'').trim()!==pri)return false;
+    if(refCode&&(r.workRefCode||'').trim()!==refCode)return false;
     return true;
   });
 }
@@ -4594,19 +4627,21 @@ function renderWorkOrders(){
   const teams = Array.from(new Set(RAW_DATA.map(r=>(r.team||'').trim()).filter(Boolean))).sort();
   const sups = Array.from(new Set(RAW_DATA.map(r=>(r.supervisor||'').trim()).filter(Boolean))).sort();
   const statuses = Array.from(new Set(RAW_DATA.map(r=>(r.status||'').trim()).filter(Boolean))).sort();
+  const refCodes = Array.from(new Set(RAW_DATA.map(r=>(r.workRefCode||'').trim()).filter(Boolean))).sort();
   document.getElementById('woFPlant').innerHTML = '<option value="">All</option>'+plants.map(p=>`<option value="${p}">${p}</option>`).join('');
   document.getElementById('woFTeam').innerHTML = '<option value="">All</option>'+teams.map(t=>`<option value="${t}">${t}</option>`).join('');
   document.getElementById('woFSup').innerHTML = '<option value="">All</option>'+sups.map(s=>`<option value="${s}">${s}</option>`).join('');
   document.getElementById('woFStatus').innerHTML = '<option value="">All</option>'+statuses.map(s=>`<option value="${s}">${s}</option>`).join('');
+  document.getElementById('woFRefCode').innerHTML = '<option value="">All</option>'+refCodes.map(c=>`<option value="${c}">${c}</option>`).join('');
   if (!document.getElementById('woSearch')._inited){
     document.getElementById('woSearch')._inited=true;
     const debounce = (fn,d)=>{ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a),d); }; };
     document.getElementById('woSearch').addEventListener('input', debounce(drawWoTable, 300));
-    ['woFPlant','woFTeam','woFPriority','woFStatus','woFOverdue','woFSup'].forEach(id=>{
+    ['woFPlant','woFTeam','woFPriority','woFStatus','woFOverdue','woFSup','woFRefCode'].forEach(id=>{
       document.getElementById(id).addEventListener('change', drawWoTable);
     });
     document.getElementById('woReset').addEventListener('click', ()=>{
-      ['woSearch','woFPlant','woFTeam','woFPriority','woFStatus','woFOverdue','woFSup'].forEach(id=>{ document.getElementById(id).value=''; });
+      ['woSearch','woFPlant','woFTeam','woFPriority','woFStatus','woFOverdue','woFSup','woFRefCode'].forEach(id=>{ document.getElementById(id).value=''; });
       drawWoTable();
     });
     document.getElementById('woExport').addEventListener('click', exportWoExcel);
@@ -4621,15 +4656,17 @@ function drawWoTable(){
   const status = document.getElementById('woFStatus').value;
   const overdue = document.getElementById('woFOverdue').value;
   const sup = document.getElementById('woFSup').value;
+  const refCode = document.getElementById('woFRefCode').value;
   let filtered = getRowsForDisplay().filter(r=>{
     if (plant && (r.plant||'').trim()!==plant) return false;
     if (team && (r.team||'').trim()!==team) return false;
     if (sup && (r.supervisor||'').trim()!==sup) return false;
     if (status && (r.status||'').trim()!==status) return false;
     if (overdue && r.overdue!==overdue) return false;
+    if (refCode && (r.workRefCode||'').trim()!==refCode) return false;
     if (pri){ const n=parseInt(r.priority); if(pri==='3+'?n<3:String(n)!==pri) return false; }
     if (search){
-      const hay = [r.wo,r.desc,r.asset,r.location,r.team,r.supervisor].join(' ').toLowerCase();
+      const hay = [r.wo,r.desc,r.asset,r.location,r.team,r.supervisor,r.workRefCode].join(' ').toLowerCase();
       if (!hay.includes(search)) return false;
     }
     return true;
