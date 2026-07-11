@@ -48,7 +48,12 @@ export async function GET(request: Request) {
   // Locked site: must be signed in (and an admin must have approved the account —
   // inactive users are already rejected at login). Anonymous → login page.
   if (!session?.user) {
-    return Response.redirect(new URL("/login?callbackUrl=/tower", request.url), 302);
+    // Relative Location so it resolves to the real host (behind Render's proxy
+    // request.url is an internal localhost address).
+    return new Response(null, {
+      status: 302,
+      headers: { Location: "/login?callbackUrl=/tower" },
+    });
   }
   const user = {
     name: session.user.name,
