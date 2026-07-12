@@ -3768,14 +3768,14 @@ function renderCumulativeTrend(rows, period){
   document.getElementById('cumulSummary').innerHTML=[
     {l:'WO Issued (Total)',n:totalIssued,c:'#2563eb'},
     {l:'Close WO',n:totalClose,c:'#10b981'},
-    {l:'OPEN (ยังไม่ปิด)',n:totalBacklog,c:'#f59e0b'},
+    {l:'Backlog',n:totalBacklog,c:'#dc2626'},
     {l:'Close Rate',n:`${totalIssued?Math.round(totalClose/totalIssued*100):0}%`,c:'#7c3aed'},
   ].map(s=>`<div class="cumul-tile"><div class="n" style="color:${s.c}">${typeof s.n==='number'?s.n.toLocaleString():s.n}</div><div class="l">${s.l}</div></div>`).join('');
 
   document.getElementById('cumulLegend').innerHTML=`
     <span class="chart-legend-item"><span class="dot" style="background:#3b82f6"></span>WO Issued (สะสม)</span>
     <span class="chart-legend-item"><span class="dot line" style="background:#10b981"></span>Close (สะสม)</span>
-    <span class="chart-legend-item"><span class="dot line" style="background:#f59e0b"></span>Open / ยังไม่ปิด (สะสม)</span>`;
+    <span class="chart-legend-item"><span class="dot line" style="background:#dc2626"></span>Backlog (สะสม)</span>`;
 
   if (typeof Chart==='undefined') return;
   if (ovCumulChartObj) ovCumulChartObj.destroy();
@@ -3785,7 +3785,7 @@ function renderCumulativeTrend(rows, period){
     data:{labels, datasets:[
       {type:'bar', label:'WO Issued', data:cumIssuedArr, backgroundColor:blueGrad, borderRadius:4, maxBarThickness:32, barPercentage:.7, order:3},
       {type:'line', label:'Close', data:cumCloseArr, borderColor:'#10b981', backgroundColor:'rgba(16,185,129,.08)', fill:true, tension:.3, borderWidth:2.5, pointRadius:2, order:2},
-      {type:'line', label:'Backlog', data:backlogArr, borderColor:'#f59e0b', backgroundColor:'rgba(245,158,11,.08)', fill:true, tension:.3, borderWidth:2.5, pointRadius:2, borderDash:[4,3], order:1},
+      {type:'line', label:'Backlog', data:backlogArr, borderColor:'#dc2626', backgroundColor:'rgba(220,38,38,.08)', fill:true, tension:.3, borderWidth:2.5, pointRadius:2, borderDash:[4,3], order:1},
     ]},
     options:{responsive:true, maintainAspectRatio:false,
       interaction:{mode:'index', intersect:false},
