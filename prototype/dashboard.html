@@ -941,18 +941,34 @@
 
         <div class="ov-charts-row">
           <div class="ov-card" style="flex:1.4;min-width:300px;">
-            <div class="ov-card-title" style="background:linear-gradient(135deg,#1e3a8a,#2563eb);">📈 WORK ORDER &amp; CLOSED TREND</div>
+            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:10px;">
+              <div class="ov-card-title" style="margin-bottom:0;background:linear-gradient(135deg,#1e3a8a,#2563eb);">📈 WORK ORDER &amp; CLOSED TREND</div>
+              <div class="ov-period-tabs">
+                <button class="ov-period-btn trend-period-btn" data-period="day">รายวัน</button>
+                <button class="ov-period-btn trend-period-btn active" data-period="month">รายเดือน</button>
+                <button class="ov-period-btn trend-period-btn" data-period="year">รายปี</button>
+              </div>
+            </div>
             <div class="chart-legend" id="trendLegend"></div>
             <div style="position:relative;height:270px;">
-              <canvas id="ovTrendChart" role="img" aria-label="กราฟแสดงแนวโน้มจำนวนใบสั่งงานและงานที่ปิดได้ต่อสัปดาห์"></canvas>
+              <canvas id="ovTrendChart" role="img" aria-label="กราฟแสดงแนวโน้มจำนวนใบสั่งงานและงานที่ปิดได้"></canvas>
             </div>
+            <div id="trendSummary" style="font-size:11px;color:#64748b;margin-top:8px;text-align:center;"></div>
           </div>
           <div class="ov-card" style="flex:1;min-width:260px;">
-            <div class="ov-card-title" style="background:linear-gradient(135deg,#78350f,#f59e0b);">📉 BACKLOG TREND</div>
+            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:10px;">
+              <div class="ov-card-title" style="margin-bottom:0;background:linear-gradient(135deg,#78350f,#f59e0b);">📉 BACKLOG TREND</div>
+              <div class="ov-period-tabs">
+                <button class="ov-period-btn trend-period-btn" data-period="day">รายวัน</button>
+                <button class="ov-period-btn trend-period-btn active" data-period="month">รายเดือน</button>
+                <button class="ov-period-btn trend-period-btn" data-period="year">รายปี</button>
+              </div>
+            </div>
             <div class="chart-legend" id="backlogLegend"></div>
             <div style="position:relative;height:270px;">
-              <canvas id="ovBacklogChart" role="img" aria-label="กราฟแสดงแนวโน้มจำนวนงานคงค้างสะสมต่อสัปดาห์"></canvas>
+              <canvas id="ovBacklogChart" role="img" aria-label="กราฟแสดงแนวโน้มจำนวนงานคงค้างสะสม"></canvas>
             </div>
+            <div id="backlogSummary" style="font-size:11px;color:#64748b;margin-top:8px;text-align:center;"></div>
           </div>
           <div class="ov-card" style="flex:1;min-width:280px;">
             <div class="ov-card-title" style="background:linear-gradient(135deg,#134e4a,#0d9488);">📋 RECORD COUNT — แยกตามทีม</div>
@@ -2874,6 +2890,8 @@ document.querySelectorAll('.nav-item[data-page]').forEach(el=>{
 ========================================================= */
 let ovTrendChartObj = null, ovBacklogChartObj = null, ovCumulChartObj = null;
 let ovCumulPeriod = 'week';
+// Period for WORK ORDER & CLOSED TREND + BACKLOG TREND charts (day/month/year).
+let ovTrendPeriod = 'month';
 
 /* Global sparkline and trend badge helpers */
 function sparkSVG(vals, col, w, h){
@@ -3200,51 +3218,92 @@ function renderOverview(){
   renderCumulativeTrend(rows, ovCumulPeriod);
   renderOvSummaryTiles(rows);
   renderOvAjDashboard();
-  // Wire period tabs (init once)
+  // Wire period tabs (init once). Scope to #ovPeriodTabs so these don't also grab
+  // the trend charts' buttons (which share the .ov-period-btn style class).
   if (!document.getElementById('ovPeriodTabs')._inited){
     document.getElementById('ovPeriodTabs')._inited = true;
-    document.querySelectorAll('.ov-period-btn').forEach(btn=>{
+    document.querySelectorAll('#ovPeriodTabs .ov-period-btn').forEach(btn=>{
       btn.addEventListener('click', ()=>{
-        document.querySelectorAll('.ov-period-btn').forEach(b=>b.classList.remove('active'));
+        document.querySelectorAll('#ovPeriodTabs .ov-period-btn').forEach(b=>b.classList.remove('active'));
         btn.classList.add('active');
         ovCumulPeriod = btn.getAttribute('data-period');
         renderCumulativeTrend(getOverviewFilteredRows(), ovCumulPeriod);
       });
     });
   }
+  // Wire day/month/year tabs for WORK ORDER & CLOSED TREND + BACKLOG TREND.
+  // Both cards share one state (ovTrendPeriod); clicking either bar re-renders
+  // both charts and keeps every trend button in sync.
+  if (!window._trendTabsInited){
+    window._trendTabsInited = true;
+    document.querySelectorAll('.trend-period-btn').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        ovTrendPeriod = btn.getAttribute('data-period');
+        document.querySelectorAll('.trend-period-btn').forEach(b=>b.classList.toggle('active', b.getAttribute('data-period')===ovTrendPeriod));
+        renderOverviewTrend(getOverviewFilteredRows());
+      });
+    });
+  }
 }
 
-function weekBuckets(rows){
+// Build time buckets for the trend charts by period:
+//   day   -> last 30 calendar days
+//   month -> last 18 calendar months
+//   year  -> every calendar year present in the data
+// WO Issued is counted by Target Start; Close/Complete by their finish date.
+// Backlog is the running total (issued − close − complete) and is seeded with a
+// baseline of everything that happened BEFORE the first shown bucket, so the line
+// reflects the true all-time backlog (and its final point equals current Open).
+function trendBuckets(rows, period){
   const seen = new Set();
   const uniq = rows.filter(r=>{ if(seen.has(r.wo)) return false; seen.add(r.wo); return true; });
-  const dates = uniq.map(r=> r.targetStart ? new Date(r.targetStart) : null).filter(Boolean);
-  if (dates.length === 0) return {labels:[], wo:[], closeArr:[], compArr:[], inprogress:[], backlog:[]};
-  const minD = new Date(Math.min(...dates)); minD.setHours(0,0,0,0);
-  const maxD = new Date(Math.max(...dates));
-  const totalDays = Math.max(1, Math.ceil((maxD - minD)/(1000*60*60*24)));
-  let bucketDays = Math.max(7, Math.ceil(totalDays/12));
-  bucketDays = Math.ceil(bucketDays/7)*7;
+  const today = new Date(); today.setHours(0,0,0,0);
   const buckets = [];
-  let cursor = new Date(minD);
-  while (cursor <= maxD){ const end=new Date(cursor); end.setDate(end.getDate()+bucketDays); buckets.push({start:new Date(cursor),end:new Date(end)}); cursor.setDate(cursor.getDate()+bucketDays); }
-  const fmtOpt = bucketDays > 25 ? {month:'short',year:'2-digit'} : {day:'numeric',month:'short'};
-  const labels = buckets.map(b=> b.start.toLocaleDateString('th-TH',fmtOpt));
-  // WO Issued: distinct WOs by targetStart in period
+  if (period === 'day'){
+    for (let i=29;i>=0;i--){ const s=new Date(today); s.setDate(s.getDate()-i); const e=new Date(s); e.setDate(e.getDate()+1);
+      buckets.push({start:s, end:e, label:s.toLocaleDateString('th-TH',{day:'numeric',month:'short'})}); }
+  } else if (period === 'year'){
+    const dts = uniq.map(r=> r.targetStart ? new Date(r.targetStart) : null).filter(Boolean);
+    const years = Array.from(new Set(dts.map(d=>d.getFullYear()))).sort((a,b)=>a-b);
+    years.forEach(y=>{ buckets.push({start:new Date(y,0,1), end:new Date(y+1,0,1), label:String(y)}); });
+  } else { // month
+    for (let i=17;i>=0;i--){ const s=new Date(today.getFullYear(), today.getMonth()-i, 1); const e=new Date(s.getFullYear(), s.getMonth()+1, 1);
+      buckets.push({start:s, end:e, label:s.toLocaleDateString('th-TH',{month:'short',year:'2-digit'})}); }
+  }
+  const labels = buckets.map(b=>b.label);
   const wo = buckets.map(b=>new Set(uniq.filter(r=> r.targetStart && new Date(r.targetStart)>=b.start && new Date(r.targetStart)<b.end).map(r=>r.wo)).size);
-  // Close: Status IN CLOSE/FORCED_CLOSE/CAN
   const closeArr = buckets.map(b=>new Set(uniq.filter(r=>{ if(statusGroup(r)!=='close') return false; const d=r.actualFinish||r.targetFinish; return d && new Date(d)>=b.start && new Date(d)<b.end; }).map(r=>r.wo)).size);
-  // Complete: Status IN FINISH/WACCEPT/COMP
   const compArr = buckets.map(b=>new Set(uniq.filter(r=>{ if(statusGroup(r)!=='completed') return false; const d=r.actualFinish||r.targetFinish; return d && new Date(d)>=b.start && new Date(d)<b.end; }).map(r=>r.wo)).size);
-  // In Progress: Not in excluded statuses
   const inprogress = buckets.map(b=>new Set(uniq.filter(r=>{ if(!(r.targetStart && new Date(r.targetStart)<b.end)) return false; return statusGroup(r)==='inprogress'; }).map(r=>r.wo)).size);
-  // Backlog: cumulative WO - (close + complete)
-  let running = 0;
+  // Baseline: everything before the first bucket, so backlog reflects the true total.
+  const firstStart = buckets.length ? buckets[0].start : today;
+  let baseIssued=0, baseClose=0, baseComp=0;
+  uniq.forEach(r=>{
+    if (r.targetStart && new Date(r.targetStart) < firstStart) baseIssued++;
+    const fin = r.actualFinish||r.targetFinish;
+    if (statusGroup(r)==='close' && fin && new Date(fin) < firstStart) baseClose++;
+    if (statusGroup(r)==='completed' && fin && new Date(fin) < firstStart) baseComp++;
+  });
+  let running = baseIssued - baseClose - baseComp;
   const backlog = buckets.map((b,i)=>{ running += wo[i] - closeArr[i] - compArr[i]; return Math.max(0,running); });
   return {labels, wo, closeArr, compArr, inprogress, backlog};
 }
 
 function renderOverviewTrend(rows){
-  const {labels, wo, closeArr, compArr, inprogress, backlog} = weekBuckets(rows);
+  const {labels, wo, closeArr, compArr, inprogress, backlog} = trendBuckets(rows, ovTrendPeriod);
+
+  // All-time totals (independent of the shown window) so the numbers can be
+  // verified against the KPI cards regardless of day/month/year selection.
+  const tSeen=new Set(); const tUniq=rows.filter(r=>{ if(tSeen.has(r.wo)) return false; tSeen.add(r.wo); return true; });
+  const totIssued=tUniq.filter(r=>r.targetStart).length;
+  const totUndated=tUniq.filter(r=>!r.targetStart).length;
+  const totClosed=tUniq.filter(r=>statusGroup(r)==='close').length;
+  const totComp=tUniq.filter(r=>statusGroup(r)==='completed').length;
+  const curBacklog=Math.max(0, tUniq.length - totClosed - totComp);
+  const tsEl=document.getElementById('trendSummary');
+  if(tsEl) tsEl.innerHTML = `รวมทั้งหมด — WO Issued: <b style="color:#2563eb">${totIssued.toLocaleString()}</b> · Completed: <b style="color:#6366f1">${totComp.toLocaleString()}</b> · Closed: <b style="color:#10b981">${totClosed.toLocaleString()}</b>${totUndated?` · <span style="color:#f59e0b">ไม่มี Target Start ${totUndated} (ไม่นับในกราฟตามวันที่)</span>`:''}`;
+  const bsEl=document.getElementById('backlogSummary');
+  if(bsEl) bsEl.innerHTML = `Backlog ปัจจุบัน (Open) = <b style="color:#dc2626">${curBacklog.toLocaleString()}</b> · เส้นแสดงยอดคงค้างสะสมตามช่วงเวลา`;
 
   document.getElementById('trendLegend').innerHTML = `
     <span class="chart-legend-item"><span class="dot" style="background:#3b82f6"></span>WO Issued</span>
@@ -3283,7 +3342,7 @@ function renderOverviewTrend(rows){
         tooltip:{backgroundColor:'#0f172a', titleColor:'#f8fafc', bodyColor:'#cbd5e1', padding:10, cornerRadius:10, displayColors:true, boxPadding:4}},
       scales:{
         y:{beginAtZero:true, grid:{color:'#f1f5f9', drawTicks:false}, border:{display:false}, ticks:{font:{size:11}, color:'#94a3b8'}},
-        x:{grid:{display:false}, border:{display:false}, ticks:{font:{size:10.5}, color:'#94a3b8', maxRotation:0}}
+        x:{grid:{display:false}, border:{display:false}, ticks:{font:{size:10.5}, color:'#94a3b8', maxRotation:0, autoSkip:true, maxTicksLimit:13}}
       }
     }
   });
@@ -3315,7 +3374,7 @@ function renderOverviewTrend(rows){
         tooltip:{backgroundColor:'#0f172a', titleColor:'#f8fafc', bodyColor:'#cbd5e1', padding:10, cornerRadius:10}},
       scales:{
         y:{beginAtZero:true, grid:{color:'#f1f5f9', drawTicks:false}, border:{display:false}, ticks:{font:{size:11}, color:'#94a3b8'}},
-        x:{grid:{display:false}, border:{display:false}, ticks:{font:{size:10.5}, color:'#94a3b8', maxRotation:0}}
+        x:{grid:{display:false}, border:{display:false}, ticks:{font:{size:10.5}, color:'#94a3b8', maxRotation:0, autoSkip:true, maxTicksLimit:13}}
       }
     }
   });
