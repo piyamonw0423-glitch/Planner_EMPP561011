@@ -1673,7 +1673,7 @@
             </div>
           <div class="table-scroll">
             <table>
-              <thead><tr><th>WO No.</th><th>ประเภท SD</th><th>Description</th><th>Plant</th><th>Team</th><th>Supervisor</th><th>Work Location</th><th>Target Start</th><th>Status (ระบบ)</th><th>Status (User)</th><th>แก้ไขแท็ก</th><th>หมายเหตุ</th></tr></thead>
+              <thead><tr><th>WO No.</th><th>ประเภท SD</th><th>Description</th><th>Asset</th><th>Plant</th><th>Team</th><th>Supervisor</th><th>Work Location</th><th>Target Start</th><th>Status (ระบบ)</th><th>Status (User)</th><th>แก้ไขแท็ก</th><th>หมายเหตุ</th></tr></thead>
               <tbody id="sdTableBody"></tbody>
             </table>
           </div>
@@ -3432,14 +3432,14 @@ let _sdMatchedRows=[];
 function exportShutdownExcel(){
   const rows = _sdMatchedRows || [];
   if(!rows.length){ if(typeof mtToast==='function') mtToast('ไม่มีข้อมูลให้ Export','#dc2626'); else alert('ไม่มีข้อมูลให้ Export'); return; }
-  const headers = ['WO No.','ประเภท SD','Description','Plant','Team','Supervisor','Work Location','Target Start','Status (ระบบ)','Status (User)','หมายเหตุ'];
+  const headers = ['WO No.','ประเภท SD','Description','Asset','Plant','Team','Supervisor','Work Location','Target Start','Status (ระบบ)','Status (User)','หมายเหตุ'];
   const data = rows.map(m=>{
     const r = m.row;
     const st = (typeof classifyStatus==='function') ? classifyStatus(r) : {label:r.status||''};
     const userU = USER_UPDATES[r.wo];
     const userStatusLabel = userU ? ((statusOptions.find(s=>s.key===userU.status)||{}).label || userU.status) : '';
     const remark = (typeof SD_REMARKS!=='undefined' ? (SD_REMARKS||{}) : {})[r.wo] || '';
-    return [r.wo, m.tag.key, r.desc||'', r.plant||'', r.team||'', r.supervisor||'', r.workLocation||'', fmtDate(r.targetStart)||'', st.label||'', userStatusLabel, remark];
+    return [r.wo, m.tag.key, r.desc||'', r.asset||'', r.plant||'', r.team||'', r.supervisor||'', r.workLocation||'', fmtDate(r.targetStart)||'', st.label||'', userStatusLabel, remark];
   });
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.aoa_to_sheet([headers, ...data]);
@@ -3562,7 +3562,7 @@ function renderShutdownPlan(){
   _sdMatchedRows = matched;
   const tbody = document.getElementById('sdTableBody');
   if (matched.length === 0){
-    tbody.innerHTML = `<tr><td colspan="12" style="text-align:center;color:var(--text-soft);padding:20px;">ไม่พบรายการ Shutdown</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="13" style="text-align:center;color:var(--text-soft);padding:20px;">ไม่พบรายการ Shutdown</td></tr>`;
     return;
   }
   const sdDropOptions = (cur)=> ['SD','ANSD','QSD'].map(k=>`<option value="${k}"${cur===k?' selected':''}>${k}</option>`).join('') + `<option value="NONE"${cur==='NONE'?' selected':''}>ไม่ใช่ Shutdown</option>`;
@@ -3578,6 +3578,7 @@ function renderShutdownPlan(){
       <td style="color:var(--primary);font-weight:600;cursor:pointer;" class="sd-open-wo" data-wo="${r.wo}">${r.wo}</td>
       <td><span class="tag" style="background:${m.tag.bg};color:${m.tag.color};padding:2px 8px;border-radius:6px;font-size:11px;font-weight:700;">${m.tag.key}</span>${src}</td>
       <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(r.desc||'')}">${escapeHtml(r.desc||'')}</td>
+      <td style="font-size:11.5px;">${escapeHtml(r.asset||'-')}</td>
       <td>${r.plant||'-'}</td>
       <td>${r.team||'-'}</td>
       <td style="font-size:11.5px;">${r.supervisor||'-'}</td>
