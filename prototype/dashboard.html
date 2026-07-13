@@ -1668,7 +1668,8 @@
         <div class="card">
           <div class="card-title" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
               <span>📋 รายการงานที่ตรวจพบ <span id="sdCount"></span></span>
-              <div style="display:flex;gap:6px;margin-left:auto;" id="sdActiveFilter" style="display:none;"></div>
+              <div style="display:flex;gap:6px;margin-left:auto;" id="sdActiveFilter"></div>
+              <button class="topbtn primary" id="sdExportBtn" style="margin-top:0;">⬇ Export Excel</button>
             </div>
           <div class="table-scroll">
             <table>
@@ -3425,6 +3426,28 @@ function getEffectiveSdTag(wo, desc){
   return {tag: auto, source: auto ? 'auto' : null};
 }
 let _sdInited=false;
+// Currently-shown Shutdown rows (after filters), kept so Export uses the same set.
+let _sdMatchedRows=[];
+// Export the "รายการงานที่ตรวจพบ" table (respecting the active filters) to Excel.
+function exportShutdownExcel(){
+  const rows = _sdMatchedRows || [];
+  if(!rows.length){ if(typeof mtToast==='function') mtToast('ไม่มีข้อมูลให้ Export','#dc2626'); else alert('ไม่มีข้อมูลให้ Export'); return; }
+  const headers = ['WO No.','ประเภท SD','Description','Plant','Team','Supervisor','Work Location','Target Start','Status (ระบบ)','Status (User)','หมายเหตุ'];
+  const data = rows.map(m=>{
+    const r = m.row;
+    const st = (typeof classifyStatus==='function') ? classifyStatus(r) : {label:r.status||''};
+    const userU = USER_UPDATES[r.wo];
+    const userStatusLabel = userU ? ((statusOptions.find(s=>s.key===userU.status)||{}).label || userU.status) : '';
+    const remark = (typeof SD_REMARKS!=='undefined' ? (SD_REMARKS||{}) : {})[r.wo] || '';
+    return [r.wo, m.tag.key, r.desc||'', r.plant||'', r.team||'', r.supervisor||'', r.workLocation||'', fmtDate(r.targetStart)||'', st.label||'', userStatusLabel, remark];
+  });
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet([headers, ...data]);
+  ws['!cols'] = headers.map((h,i)=>({wch: i===2?40:(i===0?12:16)}));
+  XLSX.utils.book_append_sheet(wb, ws, 'Shutdown Plan');
+  XLSX.writeFile(wb, `Shutdown_Plan_${new Date().toISOString().slice(0,10)}.xlsx`);
+  if(typeof mtToast==='function') mtToast(`Export ${data.length} รายการแล้ว`,'#059669');
+}
 function renderShutdownPlan(){
   const supervisors = Array.from(new Set(RAW_DATA.map(r=>(r.supervisor||'').toString().trim()).filter(Boolean))).sort();
   const locs = Array.from(new Set(RAW_DATA.map(r=>(r.workLocation||'').toString().trim()).filter(Boolean))).sort();
@@ -3445,6 +3468,7 @@ function renderShutdownPlan(){
     supSel._inited=true;
     ['sdSupervisorFilter','sdLocFilter','sdTypeFilter','sdStatusFilter','sdPlantFilter'].forEach(id=>{ const el=document.getElementById(id); if(el) el.addEventListener('change', renderShutdownPlan); });
     document.getElementById('sdFilterReset').addEventListener('click', ()=>{ supSel.value=''; locSel.value=''; typSel.value=''; staSel.value=''; if(pltSel)pltSel.value=''; renderShutdownPlan(); });
+    const sdExp=document.getElementById('sdExportBtn'); if(sdExp) sdExp.addEventListener('click', exportShutdownExcel);
   }
   const selectedSup=supSel.value, selectedLoc=locSel.value, selectedTyp=typSel.value, selectedSta=staSel.value, selectedPlt=pltSel?pltSel.value:'';
   const waitingShutdownWOs = new Set(Object.entries(USER_UPDATES).filter(([,u])=> u.status==='waitingshutdown').map(([wo])=> wo));
@@ -3535,6 +3559,7 @@ function renderShutdownPlan(){
   </div>`;
 
   const sdcEl=document.getElementById('sdCount'); if(sdcEl) sdcEl.textContent = `(${matched.length})`;
+  _sdMatchedRows = matched;
   const tbody = document.getElementById('sdTableBody');
   if (matched.length === 0){
     tbody.innerHTML = `<tr><td colspan="12" style="text-align:center;color:var(--text-soft);padding:20px;">ไม่พบรายการ Shutdown</td></tr>`;
