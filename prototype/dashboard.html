@@ -3006,9 +3006,10 @@ function initOverviewFilters(){
   if(seedMeta.selectedDate && MSF.dataDate){ MSF.dataDate.selected=new Set([seedMeta.selectedDate]); msfRender('dataDate'); }
   msfInit('priority', prios.map(p=>({value:p, label:'Priority '+p})), renderOverview);
   msfInit('status', [
-    {value:'backlog',    label:'📋 Backlog (ยังไม่ปิด)'},
+    {value:'open',       label:'📂 ยังไม่ปิด (Backlog + In Progress)'},
+    {value:'backlog',    label:'📋 Backlog (รอเริ่มงาน)'},
+    {value:'planning',   label:'📝 Planning Backlog (Wait for plan)'},
     {value:'inprogress', label:'🔵 In Progress (Active)'},
-    {value:'notactive',  label:'⏸ Waiting (WPLAN/WSCH/WSHUT)'},
     {value:'close',      label:'🔴 Closed (CLOSE/FORCED_CLOSE/CAN)'},
     {value:'completed',  label:'✅ Completed (FINISH/WACCEPT/COMP)'},
     ...rawStatuses.map(s=>({value:'raw:'+s, label:s}))
@@ -3027,15 +3028,24 @@ function initOverviewFilters(){
 
 const CLOSE_STATUSES = new Set(['CLOSE','FORCED_CLOSE','CAN']);
 const COMP_STATUSES = new Set(['FINISH','WACCEPT','COMP']);
-const NOT_INPROGRESS = new Set(['CLOSE','FORCED_CLOSE','CAN','WPLAN','WSCH','WSHUT','FINISH','WACCEPT','COMP']);
+// Backlog = approved work NOT yet started — waiting on plan/schedule/shutdown,
+// material, approval (WAPPR_*/APPR), contractor or control. By maintenance
+// principle these are all "in the queue", separate from work already In Progress.
+const BACKLOG_STATUSES = new Set(['WPLAN','WSCH','WSHUT','WMATL','APPR','WCONTRACTOR','WCTRLSUP','WCTRLTEAM']);
+// Planning Backlog subset ("Wait for plan") = matches the Looker backlog metric.
+const PLANNING_STATUSES = new Set(['WPLAN','WSCH','WSHUT']);
 
 function statusGroup(r){
   const s = (r.status||'').toString().trim().toUpperCase();
   if (CLOSE_STATUSES.has(s)) return 'close';
   if (COMP_STATUSES.has(s)) return 'completed';
-  if (NOT_INPROGRESS.has(s)) return 'notactive'; // WPLAN/WSCH/WSHUT
-  return 'inprogress'; // anything else = active/in progress
+  if (BACKLOG_STATUSES.has(s) || s.startsWith('WAPPR')) return 'backlog'; // waiting, not started
+  return 'inprogress'; // INPRG/ASSIGNED/RETURNED/REWORK/REJECTED/... = active
 }
+// Open = not closed and not completed (Backlog + In Progress).
+function isOpen(r){ const g=statusGroup(r); return g==='backlog'||g==='inprogress'; }
+// Planning Backlog ("Wait for plan") = WPLAN/WSCH/WSHUT only.
+function isPlanningBacklog(r){ return PLANNING_STATUSES.has((r.status||'').toString().trim().toUpperCase()); }
 
 function fmtDataDate(v){
   if(!v) return '';
@@ -3045,11 +3055,12 @@ function fmtDataDate(v){
 function ovStatusMatch(r, status){
   if (status.startsWith('raw:')) return (r.status||'').toString().trim().toUpperCase() === status.slice(4);
   const sg = statusGroup(r);
-  if (status==='backlog')    return (sg==='backlog'||sg==='inprogress'||sg==='notactive');
+  if (status==='open')       return sg==='backlog'||sg==='inprogress';
+  if (status==='backlog')    return sg==='backlog';
+  if (status==='planning')   return isPlanningBacklog(r);
   if (status==='close')      return sg==='close';
   if (status==='completed')  return sg==='completed';
   if (status==='inprogress') return sg==='inprogress';
-  if (status==='notactive')  return sg==='notactive';
   return false;
 }
 function getOverviewFilteredRows(){
@@ -3118,7 +3129,7 @@ function renderOverview(){
 
   function buildCard(team, list, isTotal, stripeColor, bg, color){
     const wo = list.length;
-    const backlog = list.filter(r=> statusGroup(r)==='backlog'||statusGroup(r)==='inprogress'||statusGroup(r)==='notactive').length;
+    const backlog = list.filter(r=> statusGroup(r)==='backlog').length;
     const closeCount = list.filter(r=> statusGroup(r)==='close').length;
     const compCount = list.filter(r=> statusGroup(r)==='completed').length;
     const overdue = list.filter(r=> r.overdue==='Overdue' && statusGroup(r)!=='close' && statusGroup(r)!=='completed').length;
@@ -3141,7 +3152,7 @@ function renderOverview(){
     const W1s=new Date(today.getTime()-7*86400000), W2s=new Date(today.getTime()-14*86400000);
     function thisWeek(l,fn){ return l.filter(r=>{ const d=new Date(fn(r)||0); return fn(r)&&d>=W1s; }); }
     function lastWeek(l,fn){ return l.filter(r=>{ const d=new Date(fn(r)||0); return fn(r)&&d>=W2s&&d<W1s; }); }
-    const bOpen = list.filter(r=>statusGroup(r)==='backlog'||statusGroup(r)==='inprogress'||statusGroup(r)==='notactive');
+    const bOpen = list.filter(r=>statusGroup(r)==='backlog');
     const bRecent=thisWeek(bOpen,r=>r.targetStart).length, bPrev=lastWeek(bOpen,r=>r.targetStart).length;
     const closedList=list.filter(r=>statusGroup(r)==='close');
     const cRecent=thisWeek(closedList,r=>r.actualFinish||r.targetFinish).length;
@@ -3300,11 +3311,14 @@ function renderOverviewTrend(rows){
   const totUndated=tUniq.filter(r=>!r.targetStart).length;
   const totClosed=tUniq.filter(r=>statusGroup(r)==='close').length;
   const totComp=tUniq.filter(r=>statusGroup(r)==='completed').length;
-  const curBacklog=Math.max(0, tUniq.length - totClosed - totComp);
+  const curBacklog=tUniq.filter(r=>statusGroup(r)==='backlog').length;   // waiting, not started
+  const curInprog=tUniq.filter(r=>statusGroup(r)==='inprogress').length; // active
+  const curPlanning=tUniq.filter(r=>isPlanningBacklog(r)).length;        // Wait for plan
+  const curOpen=curBacklog+curInprog;
   const tsEl=document.getElementById('trendSummary');
   if(tsEl) tsEl.innerHTML = `รวมทั้งหมด — WO Issued: <b style="color:#2563eb">${totIssued.toLocaleString()}</b> · Completed: <b style="color:#6366f1">${totComp.toLocaleString()}</b> · Closed: <b style="color:#10b981">${totClosed.toLocaleString()}</b>${totUndated?` · <span style="color:#f59e0b">ไม่มี Target Start ${totUndated} (ไม่นับในกราฟตามวันที่)</span>`:''}`;
   const bsEl=document.getElementById('backlogSummary');
-  if(bsEl) bsEl.innerHTML = `Backlog ปัจจุบัน (Open) = <b style="color:#dc2626">${curBacklog.toLocaleString()}</b> · เส้นแสดงยอดคงค้างสะสมตามช่วงเวลา`;
+  if(bsEl) bsEl.innerHTML = `ยังไม่ปิด (Open) = <b>${curOpen.toLocaleString()}</b> = Backlog <b style="color:#dc2626">${curBacklog.toLocaleString()}</b> (รอเริ่ม) + In Progress <b style="color:#3b82f6">${curInprog.toLocaleString()}</b> · ในนี้ Planning Backlog <b style="color:#d97706">${curPlanning.toLocaleString()}</b> (Wait for plan)`;
 
   document.getElementById('trendLegend').innerHTML = `
     <span class="chart-legend-item"><span class="dot" style="background:#3b82f6"></span>WO Issued</span>
@@ -4439,8 +4453,8 @@ function drawCalGrid(){
         const dur = woDuration(r);
         const isOverdue = r.overdue==='Overdue' && classifyStatusCase(r).key==='backlog';
         const sg = statusGroup(r);
-        const statusColor = sg==='close'?'#10b981':sg==='completed'?'#059669':sg==='inprogress'?'#3b82f6':sg==='notactive'?'#f59e0b':'#94a3b8';
-        const statusLabel = sg==='close'?'Closed':sg==='completed'?'Completed':sg==='inprogress'?'In Progress':sg==='notactive'?'Waiting':'Backlog';
+        const statusColor = sg==='close'?'#10b981':sg==='completed'?'#059669':sg==='inprogress'?'#3b82f6':sg==='backlog'?'#f59e0b':'#94a3b8';
+        const statusLabel = sg==='close'?'Closed':sg==='completed'?'Completed':sg==='inprogress'?'In Progress':'Backlog';
         const hasActual = r.actualStart || r.actualFinish;
         const dayDate = new Date(calYear,calMonth,day);
         const matchTarget = r.targetStart && isSameDay(new Date(r.targetStart), dayDate);
@@ -4841,7 +4855,7 @@ function drawEquipmentRepeat(){
     const avgGap = g.wos.length>1 ? Math.round(gap/(g.wos.length-1)) : '-';
     const last = g.wos[g.wos.length-1];
     // Backlog = open WOs for this asset (not just in 30d)
-    const totalBacklog = RAW_DATA.filter(r=>(r.asset||'').trim()===g.asset && (statusGroup(r)==='backlog'||statusGroup(r)==='inprogress'||statusGroup(r)==='notactive')).length;
+    const totalBacklog = RAW_DATA.filter(r=>(r.asset||'').trim()===g.asset && isOpen(r)).length;
     return {asset:g.asset, category:g.category, team:g.team, count:g.wos.length, avgGap, lastDate:last.date, lastWO:last.wo, p1:g.p1, backlog:totalBacklog};
   }).sort((a,b)=>b.count-a.count);
 
@@ -5097,7 +5111,7 @@ function computeRepeatRepairs(rows, catFilter){
     let totalGap=0;
     for(let i=1;i<g.wos.length;i++) if(g.wos[i].date&&g.wos[i-1].date) totalGap+=daysBetween(g.wos[i-1].date, g.wos[i].date);
     const last = g.wos[g.wos.length-1];
-    const backlog = g.wos.filter(w=>w.status==='backlog'||w.status==='inprogress'||w.status==='notactive').length;
+    const backlog = g.wos.filter(w=>w.status==='backlog'||w.status==='inprogress').length;
     return {asset:g.asset, category:g.category, team:g.team, count:g.wos.length, totalGap, lastDate:last.date, lastWO:last.wo, p1:g.p1, backlog, wos:g.wos};
   }).sort((a,b)=>b.count-a.count);
 }
@@ -5154,19 +5168,21 @@ function renderOvSummaryTiles(rows){
   const spk8 = (arr, fn) => Array.from({length:8},(_,i)=>{ const s=new Date(today.getTime()-(7-i)*7*86400000), e=new Date(s.getTime()+7*86400000); return arr.filter(r=>{ const d=new Date(fn(r)||0); return d>=s&&d<e; }).length; });
 
   const distinctWO    = new Set(rows.map(r=>r.wo));
-  const backlogRows   = rows.filter(r=>{ const sg=statusGroup(r); return sg==='backlog'||sg==='inprogress'||sg==='notactive'; });
+  const backlogRows   = rows.filter(r=>statusGroup(r)==='backlog');       // waiting, not started
+  const planningRows  = rows.filter(r=>isPlanningBacklog(r));             // Wait for plan (WPLAN/WSCH/WSHUT)
   const completedRows = rows.filter(r=>statusGroup(r)==='completed');
   const closedRows    = rows.filter(r=>statusGroup(r)==='close');
-  const inprogRows    = rows.filter(r=>statusGroup(r)==='inprogress');
-  const p1Rows        = rows.filter(r=>String(r.priority).trim()==='1' && (statusGroup(r)==='backlog'||statusGroup(r)==='inprogress'||statusGroup(r)==='notactive'));
+  const inprogRows    = rows.filter(r=>statusGroup(r)==='inprogress');   // active
+  const p1Rows        = rows.filter(r=>String(r.priority).trim()==='1' && isOpen(r));
 
   const tiles = [
-    {key:'total',      label:'TOTAL WO',    value:distinctWO.size,   color:'#2563eb', arr:rows,          fn:r=>r.targetStart },
-    {key:'backlog',    label:'BACKLOG',     value:backlogRows.length, color:'#f59e0b', arr:backlogRows,   fn:r=>r.targetStart },
-    {key:'completed',  label:'COMPLETED',   value:completedRows.length,color:'#10b981',arr:completedRows, fn:r=>r.actualFinish||r.targetFinish },
-    {key:'closed',     label:'CLOSED',      value:closedRows.length,  color:'#059669', arr:closedRows,    fn:r=>r.actualFinish||r.targetFinish },
-    {key:'inprogress', label:'IN PROGRESS', value:inprogRows.length,  color:'#3b82f6', arr:inprogRows,   fn:r=>r.targetStart },
-    {key:'p1',         label:'PRIORITY 1',  value:p1Rows.length,      color:'#dc2626', arr:p1Rows,       fn:r=>r.targetStart },
+    {key:'total',      label:'TOTAL WO',         value:distinctWO.size,   color:'#2563eb', arr:rows,          fn:r=>r.targetStart },
+    {key:'backlog',    label:'BACKLOG',          value:backlogRows.length, color:'#f59e0b', arr:backlogRows,   fn:r=>r.targetStart, sub:'รอเริ่มงาน (รวมรอวัสดุ/อนุมัติ)' },
+    {key:'planning',   label:'PLANNING BACKLOG', value:planningRows.length,color:'#d97706', arr:planningRows,  fn:r=>r.targetStart, sub:'Wait for plan · WPLAN/WSCH/WSHUT' },
+    {key:'inprogress', label:'IN PROGRESS',      value:inprogRows.length,  color:'#3b82f6', arr:inprogRows,   fn:r=>r.targetStart, sub:'กำลังดำเนินการ' },
+    {key:'completed',  label:'COMPLETED',        value:completedRows.length,color:'#10b981',arr:completedRows, fn:r=>r.actualFinish||r.targetFinish },
+    {key:'closed',     label:'CLOSED',           value:closedRows.length,  color:'#059669', arr:closedRows,    fn:r=>r.actualFinish||r.targetFinish },
+    {key:'p1',         label:'PRIORITY 1',       value:p1Rows.length,      color:'#dc2626', arr:p1Rows,       fn:r=>r.targetStart },
   ];
 
   const totalN = distinctWO.size || 1;
@@ -5181,6 +5197,7 @@ function renderOvSummaryTiles(rows){
     return `<div class="ov-tile" onclick="showKpiDrillDown('${t.key}')" style="cursor:pointer;" title="คลิกเพื่อดูรายละเอียด">
       <div class="ov-tile-accent" style="background:${t.color}"></div>
       <div class="ov-tile-label">${t.label}</div>
+      ${t.sub?`<div style="font-size:8.5px;color:#94a3b8;font-weight:700;line-height:1.2;margin:-1px 0 2px;">${t.sub}</div>`:''}
       <div class="ov-tile-value" style="color:${t.color}">${t.value.toLocaleString()}</div>
       <div style="font-size:11px;font-weight:800;color:${t.color};margin:2px 0 4px;">${pctOfTotal}%<span style="font-weight:600;color:#94a3b8;margin-left:4px;">ของ Total WO</span></div>
       <div class="ov-tile-footer">
@@ -6160,11 +6177,12 @@ function showKpiDrillDown(type){
   const rows = getOverviewFilteredRows();
   let filtered=[], title='';
   if(type==='total'){ filtered=rows; title='📋 Total WO — ทั้งหมด'; }
-  else if(type==='backlog'){ filtered=rows.filter(r=>['backlog','inprogress','notactive'].includes(statusGroup(r))); title='📊 Backlog — งานค้าง'; }
+  else if(type==='backlog'){ filtered=rows.filter(r=>statusGroup(r)==='backlog'); title='📋 Backlog — รอเริ่มงาน (รวมรอวัสดุ/อนุมัติ)'; }
+  else if(type==='planning'){ filtered=rows.filter(r=>isPlanningBacklog(r)); title='📝 Planning Backlog — Wait for plan (WPLAN/WSCH/WSHUT)'; }
   else if(type==='completed'){ filtered=rows.filter(r=>statusGroup(r)==='completed'); title='✅ Completed'; }
   else if(type==='closed'){ filtered=rows.filter(r=>statusGroup(r)==='close'); title='🔒 Closed'; }
   else if(type==='inprogress'){ filtered=rows.filter(r=>statusGroup(r)==='inprogress'); title='🔵 In Progress'; }
-  else if(type==='p1'){ filtered=rows.filter(r=>String(r.priority).trim()==='1'&&['backlog','inprogress','notactive'].includes(statusGroup(r))); title='🔴 Priority 1 — Open'; }
+  else if(type==='p1'){ filtered=rows.filter(r=>String(r.priority).trim()==='1'&&isOpen(r)); title='🔴 Priority 1 — Open'; }
   
   const el=document.createElement('div');
   el.id='kpiDrillModal';
@@ -7164,7 +7182,7 @@ function renderControlTower(){
 
   // KPI Row
   const p1open=rows.filter(r=>String(r.priority).trim()==='1'&&statusGroup(r)!=='close'&&statusGroup(r)!=='completed');
-  const backlog=rows.filter(r=>['backlog','inprogress','notactive'].includes(statusGroup(r)));
+  const backlog=rows.filter(r=>statusGroup(r)==='backlog');
   const overdue=rows.filter(r=>r.overdue==='Overdue'&&statusGroup(r)!=='close'&&statusGroup(r)!=='completed');
   const closed=rows.filter(r=>statusGroup(r)==='close');
   const inprog=rows.filter(r=>statusGroup(r)==='inprogress');
