@@ -3132,7 +3132,8 @@ function renderOverview(){
 
   function buildCard(team, list, isTotal, stripeColor, bg, color){
     const wo = list.length;
-    const backlog = list.filter(r=> statusGroup(r)==='backlog').length;
+    // Team card "Open" = the team's outstanding work (Planning + Backlog + In Progress).
+    const backlog = list.filter(r=> isOpen(r)).length;
     const closeCount = list.filter(r=> statusGroup(r)==='close').length;
     const compCount = list.filter(r=> statusGroup(r)==='completed').length;
     const overdue = list.filter(r=> r.overdue==='Overdue' && statusGroup(r)!=='close' && statusGroup(r)!=='completed').length;
@@ -3155,7 +3156,7 @@ function renderOverview(){
     const W1s=new Date(today.getTime()-7*86400000), W2s=new Date(today.getTime()-14*86400000);
     function thisWeek(l,fn){ return l.filter(r=>{ const d=new Date(fn(r)||0); return fn(r)&&d>=W1s; }); }
     function lastWeek(l,fn){ return l.filter(r=>{ const d=new Date(fn(r)||0); return fn(r)&&d>=W2s&&d<W1s; }); }
-    const bOpen = list.filter(r=>statusGroup(r)==='backlog');
+    const bOpen = list.filter(r=>isOpen(r));
     const bRecent=thisWeek(bOpen,r=>r.targetStart).length, bPrev=lastWeek(bOpen,r=>r.targetStart).length;
     const closedList=list.filter(r=>statusGroup(r)==='close');
     const cRecent=thisWeek(closedList,r=>r.actualFinish||r.targetFinish).length;
@@ -3188,7 +3189,7 @@ function renderOverview(){
             <div style="font-size:10px;font-weight:800;color:${isTotal?'#c7d2fe':'#94a3b8'};margin-top:2px;">100%</div>
           </div>
           <div class="ov-kpi-stat">
-            <div class="lbl">Backlog</div>
+            <div class="lbl">Open</div>
             <div class="val" style="color:${isTotal?'#fcd34d':'#d97706'}">${backlog.toLocaleString()} <span style="font-size:10px;color:#94a3b8;font-weight:700;">(${blPct}%)</span></div>
             <div style="display:flex;align-items:center;justify-content:center;gap:4px;margin-top:3px;">${trendBadge(bPct,false)}${bSpark}</div>
           </div>
@@ -3204,7 +3205,7 @@ function renderOverview(){
         </div>
       </div>
       <div class="ov-kpi-footer">
-        <span class="ratio-label">Backlog Ratio</span>
+        <span class="ratio-label">Open Ratio</span>
         <div class="ov-kpi-ratiobar"><div class="ov-kpi-ratiobar-fill" style="width:${Math.min(ratio,100)}%;background:${healthColor};"></div></div>
         <span class="ratio-val">${ratio}%</span>
       </div>
