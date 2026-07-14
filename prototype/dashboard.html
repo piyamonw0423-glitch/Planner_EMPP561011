@@ -3049,6 +3049,24 @@ function statusGroup(r){
 function isOpen(r){ const g=statusGroup(r); return g==='planning'||g==='backlog'||g==='inprogress'; }
 // Planning Backlog ("Wait for plan") = WPLAN/WSCH/WSHUT only.
 function isPlanningBacklog(r){ return statusGroup(r)==='planning'; }
+// "Issued" timestamp for the WO CUMULATIVE TREND. The sheet's Target Start is
+// often later than the actual finish for old closed work, which made cumulative
+// Close exceed Issued and clamped the Backlog line to 0. Use the EARLIEST known
+// date; for a still-open WO cap at "now" (it exists in the current snapshot), and
+// for a done WO never after its finish date — so cumulative Issued >= Close and
+// the Backlog line reconciles to the true current backlog.
+function issueDate(r){
+  const now = new Date();
+  const done = statusGroup(r)==='close' || statusGroup(r)==='completed';
+  const cands = [];
+  if (r.targetStart) cands.push(+new Date(r.targetStart));
+  if (r.actualStart) cands.push(+new Date(r.actualStart));
+  if (done && (r.actualFinish||r.targetFinish)) cands.push(+new Date(r.actualFinish||r.targetFinish));
+  if (!cands.length) return done ? null : now;
+  let d = new Date(Math.min(...cands));
+  if (!done && d > now) d = now;
+  return d;
+}
 
 function fmtDataDate(v){
   if(!v) return '';
@@ -3760,7 +3778,7 @@ function renderCumulativeTrend(rows, period){
       const start=new Date(today); start.setDate(start.getDate()-i*7); start.setHours(0,0,0,0);
       const end=new Date(start); end.setDate(end.getDate()+7);
       labels.push(`W${N-i}`);
-      issuedPer.push(uniq.filter(r=>r.targetStart&&new Date(r.targetStart)>=start&&new Date(r.targetStart)<end).length);
+      issuedPer.push(uniq.filter(r=>{ const dt=issueDate(r); return dt&&dt>=start&&dt<end; }).length);
       closePer.push(uniq.filter(r=>statusGroup(r)==='close'&&(r.actualFinish||r.targetFinish)&&new Date(r.actualFinish||r.targetFinish)>=start&&new Date(r.actualFinish||r.targetFinish)<end).length);
     }
   } else if (period==='month'){
@@ -3770,16 +3788,16 @@ function renderCumulativeTrend(rows, period){
       const d=new Date(today.getFullYear(), today.getMonth()-i, 1);
       const end=new Date(d.getFullYear(), d.getMonth()+1, 1);
       labels.push(d.toLocaleDateString('th-TH',{month:'short',year:'2-digit'}));
-      issuedPer.push(uniq.filter(r=>r.targetStart&&new Date(r.targetStart)>=d&&new Date(r.targetStart)<end).length);
+      issuedPer.push(uniq.filter(r=>{ const dt=issueDate(r); return dt&&dt>=d&&dt<end; }).length);
       closePer.push(uniq.filter(r=>statusGroup(r)==='close'&&(r.actualFinish||r.targetFinish)&&new Date(r.actualFinish||r.targetFinish)>=d&&new Date(r.actualFinish||r.targetFinish)<end).length);
     }
   } else {
     // By year (all years from data)
-    const years = Array.from(new Set(uniq.map(r=>r.targetStart?new Date(r.targetStart).getFullYear():null).filter(Boolean))).sort();
+    const years = Array.from(new Set(uniq.map(r=>{ const dt=issueDate(r); return dt?dt.getFullYear():null; }).filter(Boolean))).sort();
     years.forEach(y=>{
       const start=new Date(y,0,1), end=new Date(y+1,0,1);
       labels.push(String(y));
-      issuedPer.push(uniq.filter(r=>r.targetStart&&new Date(r.targetStart)>=start&&new Date(r.targetStart)<end).length);
+      issuedPer.push(uniq.filter(r=>{ const dt=issueDate(r); return dt&&dt>=start&&dt<end; }).length);
       closePer.push(uniq.filter(r=>statusGroup(r)==='close'&&(r.actualFinish||r.targetFinish)&&new Date(r.actualFinish||r.targetFinish)>=start&&new Date(r.actualFinish||r.targetFinish)<end).length);
     });
   }
@@ -3793,7 +3811,7 @@ function renderCumulativeTrend(rows, period){
   let baseIssued=0, baseClose=0;
   if(firstStart){
     uniq.forEach(r=>{
-      if(r.targetStart && new Date(r.targetStart) < firstStart) baseIssued++;
+      const _id=issueDate(r); if(_id && _id < firstStart) baseIssued++;
       const fin=r.actualFinish||r.targetFinish;
       if(statusGroup(r)==='close' && fin && new Date(fin) < firstStart) baseClose++;
     });
