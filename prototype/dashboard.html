@@ -3031,21 +3031,24 @@ const COMP_STATUSES = new Set(['FINISH','WACCEPT','COMP']);
 // Backlog = approved work NOT yet started — waiting on plan/schedule/shutdown,
 // material, approval (WAPPR_*/APPR), contractor or control. By maintenance
 // principle these are all "in the queue", separate from work already In Progress.
-const BACKLOG_STATUSES = new Set(['WPLAN','WSCH','WSHUT','WMATL','APPR','WCONTRACTOR','WCTRLSUP','WCTRLTEAM']);
-// Planning Backlog subset ("Wait for plan") = matches the Looker backlog metric.
+// Planning Backlog ("Wait for plan") = still being planned/scheduled — matches Looker.
 const PLANNING_STATUSES = new Set(['WPLAN','WSCH','WSHUT']);
+// Backlog = approved & planned but NOT started, waiting on material / approval
+// (WAPPR_*/APPR) / contractor / control. Kept SEPARATE from Planning Backlog.
+const BACKLOG_STATUSES = new Set(['WMATL','APPR','WCONTRACTOR','WCTRLSUP','WCTRLTEAM']);
 
 function statusGroup(r){
   const s = (r.status||'').toString().trim().toUpperCase();
   if (CLOSE_STATUSES.has(s)) return 'close';
   if (COMP_STATUSES.has(s)) return 'completed';
-  if (BACKLOG_STATUSES.has(s) || s.startsWith('WAPPR')) return 'backlog'; // waiting, not started
+  if (PLANNING_STATUSES.has(s)) return 'planning';                        // Wait for plan/schedule
+  if (BACKLOG_STATUSES.has(s) || s.startsWith('WAPPR')) return 'backlog'; // waiting material/approval
   return 'inprogress'; // INPRG/ASSIGNED/RETURNED/REWORK/REJECTED/... = active
 }
-// Open = not closed and not completed (Backlog + In Progress).
-function isOpen(r){ const g=statusGroup(r); return g==='backlog'||g==='inprogress'; }
+// Open = not closed and not completed (Planning + Backlog + In Progress).
+function isOpen(r){ const g=statusGroup(r); return g==='planning'||g==='backlog'||g==='inprogress'; }
 // Planning Backlog ("Wait for plan") = WPLAN/WSCH/WSHUT only.
-function isPlanningBacklog(r){ return PLANNING_STATUSES.has((r.status||'').toString().trim().toUpperCase()); }
+function isPlanningBacklog(r){ return statusGroup(r)==='planning'; }
 
 function fmtDataDate(v){
   if(!v) return '';
@@ -3055,9 +3058,9 @@ function fmtDataDate(v){
 function ovStatusMatch(r, status){
   if (status.startsWith('raw:')) return (r.status||'').toString().trim().toUpperCase() === status.slice(4);
   const sg = statusGroup(r);
-  if (status==='open')       return sg==='backlog'||sg==='inprogress';
+  if (status==='open')       return sg==='planning'||sg==='backlog'||sg==='inprogress';
   if (status==='backlog')    return sg==='backlog';
-  if (status==='planning')   return isPlanningBacklog(r);
+  if (status==='planning')   return sg==='planning';
   if (status==='close')      return sg==='close';
   if (status==='completed')  return sg==='completed';
   if (status==='inprogress') return sg==='inprogress';
@@ -3311,14 +3314,14 @@ function renderOverviewTrend(rows){
   const totUndated=tUniq.filter(r=>!r.targetStart).length;
   const totClosed=tUniq.filter(r=>statusGroup(r)==='close').length;
   const totComp=tUniq.filter(r=>statusGroup(r)==='completed').length;
-  const curBacklog=tUniq.filter(r=>statusGroup(r)==='backlog').length;   // waiting, not started
-  const curInprog=tUniq.filter(r=>statusGroup(r)==='inprogress').length; // active
-  const curPlanning=tUniq.filter(r=>isPlanningBacklog(r)).length;        // Wait for plan
-  const curOpen=curBacklog+curInprog;
+  const curPlanning=tUniq.filter(r=>statusGroup(r)==='planning').length;  // Wait for plan
+  const curBacklog=tUniq.filter(r=>statusGroup(r)==='backlog').length;    // wait material/approval
+  const curInprog=tUniq.filter(r=>statusGroup(r)==='inprogress').length;  // active
+  const curOpen=curPlanning+curBacklog+curInprog;
   const tsEl=document.getElementById('trendSummary');
   if(tsEl) tsEl.innerHTML = `รวมทั้งหมด — WO Issued: <b style="color:#2563eb">${totIssued.toLocaleString()}</b> · Completed: <b style="color:#6366f1">${totComp.toLocaleString()}</b> · Closed: <b style="color:#10b981">${totClosed.toLocaleString()}</b>${totUndated?` · <span style="color:#f59e0b">ไม่มี Target Start ${totUndated} (ไม่นับในกราฟตามวันที่)</span>`:''}`;
   const bsEl=document.getElementById('backlogSummary');
-  if(bsEl) bsEl.innerHTML = `ยังไม่ปิด (Open) = <b>${curOpen.toLocaleString()}</b> = Backlog <b style="color:#dc2626">${curBacklog.toLocaleString()}</b> (รอเริ่ม) + In Progress <b style="color:#3b82f6">${curInprog.toLocaleString()}</b> · ในนี้ Planning Backlog <b style="color:#d97706">${curPlanning.toLocaleString()}</b> (Wait for plan)`;
+  if(bsEl) bsEl.innerHTML = `ยังไม่ปิด (Open) = <b>${curOpen.toLocaleString()}</b> = Planning Backlog <b style="color:#d97706">${curPlanning.toLocaleString()}</b> (Wait for plan) + Backlog <b style="color:#f59e0b">${curBacklog.toLocaleString()}</b> (รอวัสดุ/อนุมัติ) + In Progress <b style="color:#3b82f6">${curInprog.toLocaleString()}</b>`;
 
   document.getElementById('trendLegend').innerHTML = `
     <span class="chart-legend-item"><span class="dot" style="background:#3b82f6"></span>WO Issued</span>
@@ -4453,8 +4456,8 @@ function drawCalGrid(){
         const dur = woDuration(r);
         const isOverdue = r.overdue==='Overdue' && classifyStatusCase(r).key==='backlog';
         const sg = statusGroup(r);
-        const statusColor = sg==='close'?'#10b981':sg==='completed'?'#059669':sg==='inprogress'?'#3b82f6':sg==='backlog'?'#f59e0b':'#94a3b8';
-        const statusLabel = sg==='close'?'Closed':sg==='completed'?'Completed':sg==='inprogress'?'In Progress':'Backlog';
+        const statusColor = sg==='close'?'#10b981':sg==='completed'?'#059669':sg==='inprogress'?'#3b82f6':sg==='backlog'?'#f59e0b':sg==='planning'?'#d97706':'#94a3b8';
+        const statusLabel = sg==='close'?'Closed':sg==='completed'?'Completed':sg==='inprogress'?'In Progress':sg==='planning'?'Planning':'Backlog';
         const hasActual = r.actualStart || r.actualFinish;
         const dayDate = new Date(calYear,calMonth,day);
         const matchTarget = r.targetStart && isSameDay(new Date(r.targetStart), dayDate);
@@ -5111,7 +5114,7 @@ function computeRepeatRepairs(rows, catFilter){
     let totalGap=0;
     for(let i=1;i<g.wos.length;i++) if(g.wos[i].date&&g.wos[i-1].date) totalGap+=daysBetween(g.wos[i-1].date, g.wos[i].date);
     const last = g.wos[g.wos.length-1];
-    const backlog = g.wos.filter(w=>w.status==='backlog'||w.status==='inprogress').length;
+    const backlog = g.wos.filter(w=>w.status==='planning'||w.status==='backlog'||w.status==='inprogress').length;
     return {asset:g.asset, category:g.category, team:g.team, count:g.wos.length, totalGap, lastDate:last.date, lastWO:last.wo, p1:g.p1, backlog, wos:g.wos};
   }).sort((a,b)=>b.count-a.count);
 }
@@ -5177,8 +5180,8 @@ function renderOvSummaryTiles(rows){
 
   const tiles = [
     {key:'total',      label:'TOTAL WO',         value:distinctWO.size,   color:'#2563eb', arr:rows,          fn:r=>r.targetStart },
-    {key:'backlog',    label:'BACKLOG',          value:backlogRows.length, color:'#f59e0b', arr:backlogRows,   fn:r=>r.targetStart, sub:'รอเริ่มงาน (รวมรอวัสดุ/อนุมัติ)' },
     {key:'planning',   label:'PLANNING BACKLOG', value:planningRows.length,color:'#d97706', arr:planningRows,  fn:r=>r.targetStart, sub:'Wait for plan · WPLAN/WSCH/WSHUT' },
+    {key:'backlog',    label:'BACKLOG',          value:backlogRows.length, color:'#f59e0b', arr:backlogRows,   fn:r=>r.targetStart, sub:'รอวัสดุ/อนุมัติ/ผู้รับเหมา' },
     {key:'inprogress', label:'IN PROGRESS',      value:inprogRows.length,  color:'#3b82f6', arr:inprogRows,   fn:r=>r.targetStart, sub:'กำลังดำเนินการ' },
     {key:'completed',  label:'COMPLETED',        value:completedRows.length,color:'#10b981',arr:completedRows, fn:r=>r.actualFinish||r.targetFinish },
     {key:'closed',     label:'CLOSED',           value:closedRows.length,  color:'#059669', arr:closedRows,    fn:r=>r.actualFinish||r.targetFinish },
