@@ -3049,6 +3049,9 @@ function statusGroup(r){
 function isOpen(r){ const g=statusGroup(r); return g==='planning'||g==='backlog'||g==='inprogress'; }
 // Planning Backlog ("Wait for plan") = WPLAN/WSCH/WSHUT only.
 function isPlanningBacklog(r){ return statusGroup(r)==='planning'; }
+// Total Backlog = work not yet started (Planning Backlog + Backlog), EXCLUDING
+// In Progress and Completed. This is what the trend charts count as "Backlog".
+function isNotStarted(r){ const g=statusGroup(r); return g==='planning'||g==='backlog'; }
 // "Issued" timestamp for the WO CUMULATIVE TREND. The sheet's Target Start is
 // often later than the actual finish for old closed work, which made cumulative
 // Close exceed Issued and clamped the Backlog line to 0. Use the EARLIEST known
@@ -3309,17 +3312,15 @@ function trendBuckets(rows, period){
   const closeArr = buckets.map(b=>new Set(uniq.filter(r=>{ if(statusGroup(r)!=='close') return false; const d=r.actualFinish||r.targetFinish; return d && new Date(d)>=b.start && new Date(d)<b.end; }).map(r=>r.wo)).size);
   const compArr = buckets.map(b=>new Set(uniq.filter(r=>{ if(statusGroup(r)!=='completed') return false; const d=r.actualFinish||r.targetFinish; return d && new Date(d)>=b.start && new Date(d)<b.end; }).map(r=>r.wo)).size);
   const inprogress = buckets.map(b=>new Set(uniq.filter(r=>{ if(!(r.targetStart && new Date(r.targetStart)<b.end)) return false; return statusGroup(r)==='inprogress'; }).map(r=>r.wo)).size);
-  // Baseline: everything before the first bucket, so backlog reflects the true total.
+  // Backlog line = NOT-STARTED work only (Planning + Backlog), excluding In
+  // Progress and Completed. Accumulate the current backlog WOs by their issue
+  // date, seeded with everything issued before the first bucket, so the line
+  // reflects the true backlog and ends at the current Total Backlog.
   const firstStart = buckets.length ? buckets[0].start : today;
-  let baseIssued=0, baseClose=0, baseComp=0;
-  uniq.forEach(r=>{
-    if (r.targetStart && new Date(r.targetStart) < firstStart) baseIssued++;
-    const fin = r.actualFinish||r.targetFinish;
-    if (statusGroup(r)==='close' && fin && new Date(fin) < firstStart) baseClose++;
-    if (statusGroup(r)==='completed' && fin && new Date(fin) < firstStart) baseComp++;
-  });
-  let running = baseIssued - baseClose - baseComp;
-  const backlog = buckets.map((b,i)=>{ running += wo[i] - closeArr[i] - compArr[i]; return Math.max(0,running); });
+  let baseBacklog=0;
+  uniq.forEach(r=>{ if(isNotStarted(r)){ const d=issueDate(r); if(d && d < firstStart) baseBacklog++; } });
+  let running = baseBacklog;
+  const backlog = buckets.map(b=>{ running += uniq.filter(r=>{ if(!isNotStarted(r)) return false; const d=issueDate(r); return d && d>=b.start && d<b.end; }).length; return running; });
   return {labels, wo, closeArr, compArr, inprogress, backlog};
 }
 
@@ -3340,7 +3341,7 @@ function renderOverviewTrend(rows){
   const tsEl=document.getElementById('trendSummary');
   if(tsEl) tsEl.innerHTML = `รวมทั้งหมด — WO Issued: <b style="color:#2563eb">${totIssued.toLocaleString()}</b> · Completed: <b style="color:#6366f1">${totComp.toLocaleString()}</b> · Closed: <b style="color:#10b981">${totClosed.toLocaleString()}</b>${totUndated?` · <span style="color:#f59e0b">ไม่มี Target Start ${totUndated} (ไม่นับในกราฟตามวันที่)</span>`:''}`;
   const bsEl=document.getElementById('backlogSummary');
-  if(bsEl) bsEl.innerHTML = `ยังไม่ปิด (Open) = <b>${curOpen.toLocaleString()}</b> = Planning Backlog <b style="color:#d97706">${curPlanning.toLocaleString()}</b> (Wait for plan) + Backlog <b style="color:#f59e0b">${curBacklog.toLocaleString()}</b> (รอวัสดุ/อนุมัติ) + In Progress <b style="color:#3b82f6">${curInprog.toLocaleString()}</b>`;
+  if(bsEl) bsEl.innerHTML = `เส้น Backlog = Total Backlog <b style="color:#dc2626">${(curPlanning+curBacklog).toLocaleString()}</b> = Planning <b style="color:#d97706">${curPlanning.toLocaleString()}</b> + Backlog <b style="color:#f59e0b">${curBacklog.toLocaleString()}</b> · ไม่รวม In Progress <b style="color:#3b82f6">${curInprog.toLocaleString()}</b>`;
 
   document.getElementById('trendLegend').innerHTML = `
     <span class="chart-legend-item"><span class="dot" style="background:#3b82f6"></span>WO Issued</span>
@@ -3769,7 +3770,7 @@ function renderCumulativeTrend(rows, period){
   // De-duplicate WOs
   const seen = new Set(); const uniq = rows.filter(r=>{ if(seen.has(r.wo)) return false; seen.add(r.wo); return true; });
   const today = new Date();
-  let labels=[], issuedPer=[], closePer=[];
+  let labels=[], issuedPer=[], closePer=[], backlogPer=[];
 
   if (period==='week'){
     // Last 16 weeks
@@ -3779,6 +3780,7 @@ function renderCumulativeTrend(rows, period){
       const end=new Date(start); end.setDate(end.getDate()+7);
       labels.push(`W${N-i}`);
       issuedPer.push(uniq.filter(r=>{ const dt=issueDate(r); return dt&&dt>=start&&dt<end; }).length);
+      backlogPer.push(uniq.filter(r=>{ const dt=issueDate(r); return isNotStarted(r)&&dt&&dt>=start&&dt<end; }).length);
       closePer.push(uniq.filter(r=>statusGroup(r)==='close'&&(r.actualFinish||r.targetFinish)&&new Date(r.actualFinish||r.targetFinish)>=start&&new Date(r.actualFinish||r.targetFinish)<end).length);
     }
   } else if (period==='month'){
@@ -3789,6 +3791,7 @@ function renderCumulativeTrend(rows, period){
       const end=new Date(d.getFullYear(), d.getMonth()+1, 1);
       labels.push(d.toLocaleDateString('th-TH',{month:'short',year:'2-digit'}));
       issuedPer.push(uniq.filter(r=>{ const dt=issueDate(r); return dt&&dt>=d&&dt<end; }).length);
+      backlogPer.push(uniq.filter(r=>{ const dt=issueDate(r); return isNotStarted(r)&&dt&&dt>=d&&dt<end; }).length);
       closePer.push(uniq.filter(r=>statusGroup(r)==='close'&&(r.actualFinish||r.targetFinish)&&new Date(r.actualFinish||r.targetFinish)>=d&&new Date(r.actualFinish||r.targetFinish)<end).length);
     }
   } else {
@@ -3798,6 +3801,7 @@ function renderCumulativeTrend(rows, period){
       const start=new Date(y,0,1), end=new Date(y+1,0,1);
       labels.push(String(y));
       issuedPer.push(uniq.filter(r=>{ const dt=issueDate(r); return dt&&dt>=start&&dt<end; }).length);
+      backlogPer.push(uniq.filter(r=>{ const dt=issueDate(r); return isNotStarted(r)&&dt&&dt>=start&&dt<end; }).length);
       closePer.push(uniq.filter(r=>statusGroup(r)==='close'&&(r.actualFinish||r.targetFinish)&&new Date(r.actualFinish||r.targetFinish)>=start&&new Date(r.actualFinish||r.targetFinish)<end).length);
     });
   }
@@ -3808,29 +3812,30 @@ function renderCumulativeTrend(rows, period){
   let firstStart=null;
   if(period==='week'){ firstStart=new Date(today); firstStart.setDate(firstStart.getDate()-15*7); firstStart.setHours(0,0,0,0); }
   else if(period==='month'){ firstStart=new Date(today.getFullYear(), today.getMonth()-17, 1); }
-  let baseIssued=0, baseClose=0;
+  let baseIssued=0, baseClose=0, baseBacklog=0;
   if(firstStart){
     uniq.forEach(r=>{
-      const _id=issueDate(r); if(_id && _id < firstStart) baseIssued++;
+      const _id=issueDate(r); if(_id && _id < firstStart){ baseIssued++; if(isNotStarted(r)) baseBacklog++; }
       const fin=r.actualFinish||r.targetFinish;
       if(statusGroup(r)==='close' && fin && new Date(fin) < firstStart) baseClose++;
     });
   }
-  // Cumulative running totals (start from the pre-window baseline)
-  let cumIssued=baseIssued,cumClose=baseClose;
+  // Cumulative running totals (start from the pre-window baseline). Backlog counts
+  // only not-started work (Planning + Backlog), NOT In Progress or Completed.
+  let cumIssued=baseIssued,cumClose=baseClose,cumBacklog=baseBacklog;
   const cumIssuedArr=[],cumCloseArr=[],backlogArr=[];
-  issuedPer.forEach((_,i)=>{ cumIssued+=issuedPer[i]; cumClose+=closePer[i]; cumIssuedArr.push(cumIssued); cumCloseArr.push(cumClose); backlogArr.push(Math.max(0,cumIssued-cumClose)); });
+  issuedPer.forEach((_,i)=>{ cumIssued+=issuedPer[i]; cumClose+=closePer[i]; cumBacklog+=backlogPer[i]; cumIssuedArr.push(cumIssued); cumCloseArr.push(cumClose); backlogArr.push(cumBacklog); });
 
   // Summary tiles = TRUE totals over ALL work orders (not the timeline cumulative),
   // so they always equal TOTAL WO and are identical across week/month/year views.
   // (The chart lines still show the trend over time.)
   const totalIssued=uniq.length;
   const totalClose=uniq.filter(r=>statusGroup(r)==='close').length;
-  const totalBacklog=Math.max(0,totalIssued-totalClose);
+  const totalBacklog=uniq.filter(r=>isNotStarted(r)).length; // Planning + Backlog (not started)
   document.getElementById('cumulSummary').innerHTML=[
     {l:'WO Issued (Total)',n:totalIssued,c:'#2563eb'},
     {l:'Close WO',n:totalClose,c:'#10b981'},
-    {l:'Backlog',n:totalBacklog,c:'#dc2626'},
+    {l:'Backlog (ยังไม่เริ่ม)',n:totalBacklog,c:'#dc2626'},
     {l:'Close Rate',n:`${totalIssued?Math.round(totalClose/totalIssued*100):0}%`,c:'#7c3aed'},
   ].map(s=>`<div class="cumul-tile"><div class="n" style="color:${s.c}">${typeof s.n==='number'?s.n.toLocaleString():s.n}</div><div class="l">${s.l}</div></div>`).join('');
 
@@ -5190,8 +5195,9 @@ function renderOvSummaryTiles(rows){
   const spk8 = (arr, fn) => Array.from({length:8},(_,i)=>{ const s=new Date(today.getTime()-(7-i)*7*86400000), e=new Date(s.getTime()+7*86400000); return arr.filter(r=>{ const d=new Date(fn(r)||0); return d>=s&&d<e; }).length; });
 
   const distinctWO    = new Set(rows.map(r=>r.wo));
-  const backlogRows   = rows.filter(r=>statusGroup(r)==='backlog');       // waiting, not started
+  const backlogRows   = rows.filter(r=>statusGroup(r)==='backlog');       // pending start (material/approval)
   const planningRows  = rows.filter(r=>isPlanningBacklog(r));             // Wait for plan (WPLAN/WSCH/WSHUT)
+  const totalBacklogRows = rows.filter(r=>isNotStarted(r));               // Total Backlog = Planning + Backlog
   const completedRows = rows.filter(r=>statusGroup(r)==='completed');
   const closedRows    = rows.filter(r=>statusGroup(r)==='close');
   const inprogRows    = rows.filter(r=>statusGroup(r)==='inprogress');   // active
@@ -5199,8 +5205,9 @@ function renderOvSummaryTiles(rows){
 
   const tiles = [
     {key:'total',      label:'TOTAL WO',         value:distinctWO.size,   color:'#2563eb', arr:rows,          fn:r=>r.targetStart },
+    {key:'totalbacklog',label:'TOTAL BACKLOG',   value:totalBacklogRows.length,color:'#dc2626',arr:totalBacklogRows,fn:r=>r.targetStart, sub:'Planning + Backlog (ยังไม่เริ่ม)' },
     {key:'planning',   label:'PLANNING BACKLOG', value:planningRows.length,color:'#d97706', arr:planningRows,  fn:r=>r.targetStart, sub:'Wait for plan · WPLAN/WSCH/WSHUT' },
-    {key:'backlog',    label:'BACKLOG',          value:backlogRows.length, color:'#f59e0b', arr:backlogRows,   fn:r=>r.targetStart, sub:'รอวัสดุ/อนุมัติ/ผู้รับเหมา' },
+    {key:'backlog',    label:'BACKLOG - PENDING START', value:backlogRows.length, color:'#f59e0b', arr:backlogRows,   fn:r=>r.targetStart, sub:'รวมรอวัสดุ/อนุมัติ/ผู้รับเหมา' },
     {key:'inprogress', label:'IN PROGRESS',      value:inprogRows.length,  color:'#3b82f6', arr:inprogRows,   fn:r=>r.targetStart, sub:'กำลังดำเนินการ' },
     {key:'completed',  label:'COMPLETED',        value:completedRows.length,color:'#10b981',arr:completedRows, fn:r=>r.actualFinish||r.targetFinish },
     {key:'closed',     label:'CLOSED',           value:closedRows.length,  color:'#059669', arr:closedRows,    fn:r=>r.actualFinish||r.targetFinish },
@@ -6199,7 +6206,8 @@ function showKpiDrillDown(type){
   const rows = getOverviewFilteredRows();
   let filtered=[], title='';
   if(type==='total'){ filtered=rows; title='📋 Total WO — ทั้งหมด'; }
-  else if(type==='backlog'){ filtered=rows.filter(r=>statusGroup(r)==='backlog'); title='📋 Backlog — รอเริ่มงาน (รวมรอวัสดุ/อนุมัติ)'; }
+  else if(type==='totalbacklog'){ filtered=rows.filter(r=>isNotStarted(r)); title='📋 Total Backlog — ยังไม่เริ่ม (Planning + Backlog)'; }
+  else if(type==='backlog'){ filtered=rows.filter(r=>statusGroup(r)==='backlog'); title='📋 Backlog - Pending Start (รวมรอวัสดุ/อนุมัติ/ผู้รับเหมา)'; }
   else if(type==='planning'){ filtered=rows.filter(r=>isPlanningBacklog(r)); title='📝 Planning Backlog — Wait for plan (WPLAN/WSCH/WSHUT)'; }
   else if(type==='completed'){ filtered=rows.filter(r=>statusGroup(r)==='completed'); title='✅ Completed'; }
   else if(type==='closed'){ filtered=rows.filter(r=>statusGroup(r)==='close'); title='🔒 Closed'; }
