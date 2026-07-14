@@ -5201,7 +5201,7 @@ function renderOvSummaryTiles(rows){
   const completedRows = rows.filter(r=>statusGroup(r)==='completed');
   const closedRows    = rows.filter(r=>statusGroup(r)==='close');
   const inprogRows    = rows.filter(r=>statusGroup(r)==='inprogress');   // active
-  const p1Rows        = rows.filter(r=>String(r.priority).trim()==='1' && isOpen(r));
+  const p1Rows        = rows.filter(r=>String(r.priority).trim()==='1' && isNotStarted(r)); // P1 Backlog (not started)
 
   const tiles = [
     {key:'total',      label:'TOTAL WO',         value:distinctWO.size,   color:'#2563eb', arr:rows,          fn:r=>r.targetStart },
@@ -5211,7 +5211,7 @@ function renderOvSummaryTiles(rows){
     {key:'inprogress', label:'IN PROGRESS',      value:inprogRows.length,  color:'#3b82f6', arr:inprogRows,   fn:r=>r.targetStart, sub:'กำลังดำเนินการ' },
     {key:'completed',  label:'COMPLETED',        value:completedRows.length,color:'#10b981',arr:completedRows, fn:r=>r.actualFinish||r.targetFinish },
     {key:'closed',     label:'CLOSED',           value:closedRows.length,  color:'#059669', arr:closedRows,    fn:r=>r.actualFinish||r.targetFinish },
-    {key:'p1',         label:'PRIORITY 1',       value:p1Rows.length,      color:'#dc2626', arr:p1Rows,       fn:r=>r.targetStart },
+    {key:'p1',         label:'PRIORITY 1',       value:p1Rows.length,      color:'#dc2626', arr:p1Rows,       fn:r=>r.targetStart, sub:'Backlog เท่านั้น (ยังไม่เริ่ม)' },
   ];
 
   const totalN = distinctWO.size || 1;
@@ -6212,7 +6212,7 @@ function showKpiDrillDown(type){
   else if(type==='completed'){ filtered=rows.filter(r=>statusGroup(r)==='completed'); title='✅ Completed'; }
   else if(type==='closed'){ filtered=rows.filter(r=>statusGroup(r)==='close'); title='🔒 Closed'; }
   else if(type==='inprogress'){ filtered=rows.filter(r=>statusGroup(r)==='inprogress'); title='🔵 In Progress'; }
-  else if(type==='p1'){ filtered=rows.filter(r=>String(r.priority).trim()==='1'&&isOpen(r)); title='🔴 Priority 1 — Open'; }
+  else if(type==='p1'){ filtered=rows.filter(r=>String(r.priority).trim()==='1'&&isNotStarted(r)); title='🔴 Priority 1 — Backlog (ยังไม่เริ่ม)'; }
   
   const el=document.createElement('div');
   el.id='kpiDrillModal';
