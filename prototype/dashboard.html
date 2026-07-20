@@ -1477,14 +1477,14 @@
           </div>
           <div style="display:flex;align-items:center;gap:6px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.15);border-radius:8px;padding:4px 8px;">
             <span style="font-size:10px;color:#94a3b8;white-space:nowrap;">API Key</span>
-            <input type="password" id="aiApiKey" placeholder="sk-ant-..." style="background:transparent;border:none;color:#e2e8f0;font-size:11px;width:120px;outline:none;" title="Anthropic API Key (ถ้าเปิดใน browser ต้องใส่ Key)">
+            <input type="password" id="aiApiKey" placeholder="AIza..." style="background:transparent;border:none;color:#e2e8f0;font-size:11px;width:120px;outline:none;" title="Google Gemini API Key (ฟรี จาก aistudio.google.com)">
           </div>
           <div style="display:flex;align-items:center;gap:4px;" onclick="event.stopPropagation()">
-            <input type="password" id="aiApiKeyInline" placeholder="sk-ant-api..." 
+            <input type="password" id="aiApiKeyInline" placeholder="Gemini API Key (AIza...)"
               onchange="localStorage.setItem('mt_ai_api_key',this.value.trim())"
               value=""
-              style="width:160px;font-size:11px;padding:4px 8px;border-radius:7px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.1);color:#fff;outline:none;"
-              title="ใส่ Anthropic API Key จาก console.anthropic.com">
+              style="width:170px;font-size:11px;padding:4px 8px;border-radius:7px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.1);color:#fff;outline:none;"
+              title="ใส่ Google Gemini API Key (ฟรี) จาก aistudio.google.com/app/apikey">
             <button onclick="showAiKeyModal()" style="background:rgba(255,255,255,.12);border:none;color:#c7d2fe;padding:5px 10px;border-radius:7px;cursor:pointer;font-size:12px;" title="จัดการ API Key">🔑</button>
           </div>
           <button onclick="aiLogout()" style="background:rgba(255,255,255,.1);border:none;color:#94a3b8;padding:5px 12px;border-radius:7px;cursor:pointer;font-size:12px;">🔒 ออก</button>
@@ -6951,7 +6951,7 @@ Priority: P${r.priority||''}
   try {
     const apiKey = (document.getElementById('aiApiKeyInline')||{}).value?.trim()
       || localStorage.getItem('mt_ai_api_key')||'';
-    // Guard: this feature needs the user's own Anthropic API Key (kept in this
+    // Guard: this feature needs a FREE Google Gemini API Key (kept in this
     // browser only). Without it, give clear guidance instead of a failed call.
     if(!apiKey){
       clearInterval(ltInterval);
@@ -6959,28 +6959,27 @@ Priority: P${r.priority||''}
       document.getElementById('aiResultArea').style.display='flex';
       document.getElementById('aiEngineeringSummary').innerHTML =
         `<div style="background:#fef3c7;border:1px solid #fde68a;border-radius:8px;padding:14px;color:#92400e;">`+
-        `🔑 <b>ต้องใส่ Anthropic API Key ก่อนใช้งาน AI Engineer</b><br>`+
-        `<span style="font-size:12px;">รับ Key ได้ที่ <a href="https://console.anthropic.com" target="_blank" style="color:#2563eb;">console.anthropic.com</a> แล้ววางในช่อง “API Key” ด้านบน — Key จะถูกเก็บไว้ใน browser ของคุณเท่านั้น</span></div>`;
+        `🔑 <b>ต้องใส่ Google Gemini API Key (ฟรี) ก่อนใช้งาน AI Engineer</b><br>`+
+        `<span style="font-size:12px;">รับ Key ฟรีได้ที่ <a href="https://aistudio.google.com/app/apikey" target="_blank" style="color:#2563eb;">aistudio.google.com/app/apikey</a> (ไม่ต้องผูกบัตร) แล้ววางในช่อง “API Key” ด้านบน — Key เก็บไว้ใน browser ของคุณเท่านั้น</span></div>`;
       const kf=document.getElementById('aiApiKeyInline'); if(kf){ kf.style.outline='2px solid #f59e0b'; kf.focus(); }
       return;
     }
     localStorage.setItem('mt_ai_api_key', apiKey); // remember for next time
-    const headers = {'Content-Type':'application/json','anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true','x-api-key':apiKey};
-    const resp = await fetch('https://api.anthropic.com/v1/messages',{
+    // Google Gemini API — free tier (key from aistudio.google.com, no credit card).
+    const resp = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key='+encodeURIComponent(apiKey),{
       method:'POST',
-      headers,
+      headers:{'Content-Type':'application/json'},
       body: JSON.stringify({
-        model:'claude-sonnet-4-5',
-        max_tokens:4000,
-        system:'You are a maintenance engineering AI assistant. ALWAYS respond with valid JSON only. No markdown, no backticks, no explanations outside the JSON object. Start your response with { and end with }.',
-        messages:[{role:'user', content:prompt}]
+        systemInstruction:{ parts:[{ text:'You are a senior maintenance engineering AI assistant in a petrochemical plant. Respond with a single valid JSON object only — no markdown, no text outside the object.' }] },
+        contents:[{ role:'user', parts:[{ text:prompt }] }],
+        generationConfig:{ temperature:0.4, maxOutputTokens:4000, responseMimeType:'application/json' }
       })
     });
     const data = await resp.json();
     clearInterval(ltInterval);
     document.getElementById('aiLoading').style.display='none';
-    if(!resp.ok||!data.content) throw new Error(data.error?.message||'API Error');
-    const text = data.content.map(c=>c.text||'').join('');
+    if(!resp.ok||!data.candidates||!data.candidates[0]) throw new Error(data.error?.message||(data.promptFeedback?'ถูกบล็อกโดยตัวกรองเนื้อหา':'API Error'));
+    const text = (data.candidates[0].content?.parts||[]).map(pt=>pt.text||'').join('');
     let ai;
     try {
       // Extract JSON from response
@@ -7009,16 +7008,16 @@ Priority: P${r.priority||''}
     clearInterval(ltInterval);
     document.getElementById('aiLoading').style.display='none';
     let errMsg = err.message||'Unknown error';
-    let hint = '💡 ตรวจสอบ API Key และเครดิตคงเหลือในบัญชี Anthropic';
-    if(/authentication|x-api-key|invalid.*api.*key|401|permission/i.test(errMsg)){
-      errMsg='API Key ไม่ถูกต้องหรือหมดสิทธิ์การใช้งาน';
-      hint='💡 ตรวจสอบ/สร้าง Key ใหม่ที่ console.anthropic.com แล้ววางในช่อง API Key';
-    } else if(/credit|billing|quota|insufficient/i.test(errMsg)){
-      errMsg='เครดิตในบัญชี Anthropic ไม่พอ';
-      hint='💡 เติมเครดิตที่ console.anthropic.com → Billing';
+    let hint = '💡 ตรวจสอบ Gemini API Key ที่ aistudio.google.com/app/apikey';
+    if(/api.?key.?not.?valid|invalid.*key|API_KEY_INVALID|permission|401|403/i.test(errMsg)){
+      errMsg='API Key ไม่ถูกต้องหรือไม่มีสิทธิ์';
+      hint='💡 สร้าง Key ใหม่ (ฟรี) ที่ aistudio.google.com/app/apikey แล้ววางในช่อง API Key';
+    } else if(/quota|rate|RESOURCE_EXHAUSTED|429/i.test(errMsg)){
+      errMsg='ใช้เกินโควตาฟรีชั่วคราว';
+      hint='💡 รอสักครู่แล้วลองใหม่ (Gemini free tier มีลิมิตต่อนาที)';
     } else if(errMsg.includes('Failed to fetch')||errMsg.includes('Network')){
-      errMsg='เชื่อมต่อ Anthropic API ไม่ได้';
-      hint='💡 ตรวจสอบอินเทอร์เน็ต / API Key / เครดิตในบัญชี';
+      errMsg='เชื่อมต่อ Gemini API ไม่ได้';
+      hint='💡 ตรวจสอบอินเทอร์เน็ต / API Key';
     }
     document.getElementById('aiResultArea').style.display='flex';
     document.getElementById('aiEngineeringSummary').innerHTML=`
@@ -7319,9 +7318,9 @@ function renderControlTower(){
 function showAiKeyModal(){
   const cur=localStorage.getItem('mt_ai_api_key')||'';
   showSysModal({
-    title:'🔑 Anthropic API Key',
-    body:`ใส่ API Key จาก <a href="https://console.anthropic.com" target="_blank" style="color:#6366f1;">console.anthropic.com</a><br><span style="font-size:10.5px;color:#94a3b8;">Key จะถูกเก็บใน localStorage ของ browser เท่านั้น</span>`,
-    fields:[{id:'aiKeyInput',label:'API Key',type:'text',placeholder:'sk-ant-api...',value:cur,required:true}],
+    title:'🔑 Google Gemini API Key (ฟรี)',
+    body:`รับ Key ฟรีที่ <a href="https://aistudio.google.com/app/apikey" target="_blank" style="color:#6366f1;">aistudio.google.com/app/apikey</a> (ไม่ต้องผูกบัตร)<br><span style="font-size:10.5px;color:#94a3b8;">Key จะถูกเก็บใน localStorage ของ browser เท่านั้น</span>`,
+    fields:[{id:'aiKeyInput',label:'Gemini API Key',type:'text',placeholder:'AIza...',value:cur,required:true}],
     confirmLabel:'💾 บันทึก Key',
     confirmClass:'btn-primary-blue',
     cancelLabel:'ยกเลิก',
