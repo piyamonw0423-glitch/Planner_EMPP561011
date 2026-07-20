@@ -6951,8 +6951,21 @@ Priority: P${r.priority||''}
   try {
     const apiKey = (document.getElementById('aiApiKeyInline')||{}).value?.trim()
       || localStorage.getItem('mt_ai_api_key')||'';
-    const headers = {'Content-Type':'application/json','anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'};
-    if(apiKey) headers['x-api-key'] = apiKey;
+    // Guard: this feature needs the user's own Anthropic API Key (kept in this
+    // browser only). Without it, give clear guidance instead of a failed call.
+    if(!apiKey){
+      clearInterval(ltInterval);
+      document.getElementById('aiLoading').style.display='none';
+      document.getElementById('aiResultArea').style.display='flex';
+      document.getElementById('aiEngineeringSummary').innerHTML =
+        `<div style="background:#fef3c7;border:1px solid #fde68a;border-radius:8px;padding:14px;color:#92400e;">`+
+        `🔑 <b>ต้องใส่ Anthropic API Key ก่อนใช้งาน AI Engineer</b><br>`+
+        `<span style="font-size:12px;">รับ Key ได้ที่ <a href="https://console.anthropic.com" target="_blank" style="color:#2563eb;">console.anthropic.com</a> แล้ววางในช่อง “API Key” ด้านบน — Key จะถูกเก็บไว้ใน browser ของคุณเท่านั้น</span></div>`;
+      const kf=document.getElementById('aiApiKeyInline'); if(kf){ kf.style.outline='2px solid #f59e0b'; kf.focus(); }
+      return;
+    }
+    localStorage.setItem('mt_ai_api_key', apiKey); // remember for next time
+    const headers = {'Content-Type':'application/json','anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true','x-api-key':apiKey};
     const resp = await fetch('https://api.anthropic.com/v1/messages',{
       method:'POST',
       headers,
@@ -6996,14 +7009,22 @@ Priority: P${r.priority||''}
     clearInterval(ltInterval);
     document.getElementById('aiLoading').style.display='none';
     let errMsg = err.message||'Unknown error';
-    if(errMsg.includes('Failed to fetch')||errMsg.includes('Network')){
-      errMsg='ไม่สามารถเชื่อมต่อ API — ฟีเจอร์นี้ต้องใช้งานผ่าน Claude.ai Artifact เท่านั้น';
+    let hint = '💡 ตรวจสอบ API Key และเครดิตคงเหลือในบัญชี Anthropic';
+    if(/authentication|x-api-key|invalid.*api.*key|401|permission/i.test(errMsg)){
+      errMsg='API Key ไม่ถูกต้องหรือหมดสิทธิ์การใช้งาน';
+      hint='💡 ตรวจสอบ/สร้าง Key ใหม่ที่ console.anthropic.com แล้ววางในช่อง API Key';
+    } else if(/credit|billing|quota|insufficient/i.test(errMsg)){
+      errMsg='เครดิตในบัญชี Anthropic ไม่พอ';
+      hint='💡 เติมเครดิตที่ console.anthropic.com → Billing';
+    } else if(errMsg.includes('Failed to fetch')||errMsg.includes('Network')){
+      errMsg='เชื่อมต่อ Anthropic API ไม่ได้';
+      hint='💡 ตรวจสอบอินเทอร์เน็ต / API Key / เครดิตในบัญชี';
     }
     document.getElementById('aiResultArea').style.display='flex';
     document.getElementById('aiEngineeringSummary').innerHTML=`
       <div style="background:#fee2e2;border-radius:8px;padding:14px;color:#b91c1c;">
         <b>❌ AI Analysis Error</b><br>${escapeHtml(errMsg)}<br><br>
-        <div style="font-size:11px;color:#92400e;">💡 วิธีแก้: เปิดไฟล์ผ่าน Claude.ai Artifacts viewer หรือตรวจสอบ network connection</div>
+        <div style="font-size:11px;color:#92400e;">${hint}</div>
       </div>`;
     console.error('AI Error:', err);
   }
