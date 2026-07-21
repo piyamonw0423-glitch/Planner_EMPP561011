@@ -29,6 +29,22 @@ export function draftKeyToEnum(key: string): WoStatus | null {
   return ENUM_BY_DRAFT_KEY[(key || "").toLowerCase()] ?? null;
 }
 
+// Classify a raw sheet status into the dashboard's status groups (mirrors the
+// client's statusGroup). Used for the per-Data_Date trend aggregate.
+const SNAP_CLOSE = new Set(["CLOSE", "FORCED_CLOSE", "CAN"]);
+const SNAP_COMP = new Set(["FINISH", "WACCEPT", "COMP"]);
+const SNAP_PLAN = new Set(["WPLAN", "WSCH", "WSHUT"]);
+const SNAP_BACK = new Set(["WMATL", "APPR", "WCONTRACTOR", "WCTRLSUP", "WCTRLTEAM"]);
+type SnapGroup = "close" | "completed" | "planning" | "backlog" | "inprogress";
+function snapGroup(s: string | null): SnapGroup {
+  const x = (s || "").trim().toUpperCase();
+  if (SNAP_CLOSE.has(x)) return "close";
+  if (SNAP_COMP.has(x)) return "completed";
+  if (SNAP_PLAN.has(x)) return "planning";
+  if (SNAP_BACK.has(x) || x.startsWith("WAPPR")) return "backlog";
+  return "inprogress";
+}
+
 // Row shape consumed by the prototype's RAW_DATA (matches parseRows output).
 export type DraftWoRow = {
   wo: string;
@@ -73,6 +89,19 @@ export type DraftState = {
     fileName: string | null;
     availableDates: string[];
     selectedDate: string | null;
+    // Per-Data_Date totals across ALL snapshots, for the WO CUMULATIVE TREND
+    // "ตาม Data_Date" view (real counts of each weekly data pull).
+    snapshotTrend: Array<{
+      date: string;
+      total: number;
+      close: number;
+      completed: number;
+      planning: number;
+      backlog: number;
+      inprogress: number;
+      totalBacklog: number;
+      open: number;
+    }>;
   };
   // Shared app-managed blobs (reschedule, shutdown, facilitate, ... ) keyed by
   // their original localStorage key.
@@ -222,6 +251,42 @@ export async function getDraftState(requestedDate?: string): Promise<DraftState>
     };
   });
 
+  // Per-Data_Date totals across ALL snapshots (real count of each weekly pull).
+  const snapAgg = await withDbRetry(() =>
+    prisma.workOrderSnapshot.groupBy({
+      by: ["dataDate", "status"],
+      _count: { _all: true },
+    })
+  );
+  const trendMap = new Map<
+    string,
+    { total: number; close: number; completed: number; planning: number; backlog: number; inprogress: number }
+  >();
+  for (const r of snapAgg) {
+    const iso = r.dataDate.toISOString().slice(0, 10);
+    let g = trendMap.get(iso);
+    if (!g) {
+      g = { total: 0, close: 0, completed: 0, planning: 0, backlog: 0, inprogress: 0 };
+      trendMap.set(iso, g);
+    }
+    const c = r._count._all;
+    g.total += c;
+    g[snapGroup(r.status)] += c;
+  }
+  const snapshotTrend = [...trendMap.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([date, g]) => ({
+      date,
+      total: g.total,
+      close: g.close,
+      completed: g.completed,
+      planning: g.planning,
+      backlog: g.backlog,
+      inprogress: g.inprogress,
+      totalBacklog: g.planning + g.backlog,
+      open: g.planning + g.backlog + g.inprogress,
+    }));
+
   return {
     workOrders,
     userUpdates,
@@ -232,6 +297,7 @@ export async function getDraftState(requestedDate?: string): Promise<DraftState>
       fileName: lastBatch ? lastBatch.fileName : null,
       availableDates,
       selectedDate,
+      snapshotTrend,
     },
     appData,
   };

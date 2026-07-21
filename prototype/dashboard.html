@@ -923,7 +923,8 @@
             <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:10px;">
               <div class="ov-card-title" style="margin-bottom:0;background:linear-gradient(135deg,#0c1445,#1e3a8a);">📊 WO CUMULATIVE TREND — TOTAL WO vs CLOSE vs BACKLOG</div>
               <div class="ov-period-tabs" id="ovPeriodTabs">
-                <button class="ov-period-btn active" data-period="week">รายสัปดาห์</button>
+                <button class="ov-period-btn active" data-period="datadate">ตาม Data_Date</button>
+                <button class="ov-period-btn" data-period="week">รายสัปดาห์</button>
                 <button class="ov-period-btn" data-period="month">รายเดือน</button>
                 <button class="ov-period-btn" data-period="year">รายปี</button>
               </div>
@@ -2891,7 +2892,7 @@ document.querySelectorAll('.nav-item[data-page]').forEach(el=>{
    EXECUTIVE OVERVIEW PAGE
 ========================================================= */
 let ovTrendChartObj = null, ovBacklogChartObj = null, ovCumulChartObj = null;
-let ovCumulPeriod = 'week';
+let ovCumulPeriod = 'datadate';
 // Period for WORK ORDER & CLOSED TREND + BACKLOG TREND charts (day/month/year).
 let ovTrendPeriod = 'month';
 
@@ -3768,6 +3769,28 @@ function showKpiDrillByAJ(aj){
 }
 
 function renderCumulativeTrend(rows, period){
+  // "ตาม Data_Date": plot the REAL totals of each weekly snapshot (from all
+  // Data_Dates in the DB), not a bucketing of the current snapshot.
+  const snapTrend = (window.__MT_SEED__ && window.__MT_SEED__.meta && window.__MT_SEED__.meta.snapshotTrend) || [];
+  if (period==='datadate' && snapTrend.length){
+    const labels = snapTrend.map(s=>{ const d=new Date(s.date+'T00:00:00'); return isNaN(d.getTime())?s.date:d.toLocaleDateString('th-TH',{day:'numeric',month:'short',year:'2-digit'}); });
+    const issued = snapTrend.map(s=>s.total);
+    const closed = snapTrend.map(s=>s.close);
+    const backlog = snapTrend.map(s=>s.totalBacklog);
+    const last = snapTrend[snapTrend.length-1];
+    document.getElementById('cumulSummary').innerHTML=[
+      {l:'Total WO (ล่าสุด)',n:last.total,c:'#2563eb'},
+      {l:'Close (ล่าสุด)',n:last.close,c:'#10b981'},
+      {l:'Backlog (ล่าสุด)',n:last.totalBacklog,c:'#dc2626'},
+      {l:'จำนวน Snapshot',n:snapTrend.length,c:'#7c3aed'},
+    ].map(s=>`<div class="cumul-tile"><div class="n" style="color:${s.c}">${typeof s.n==='number'?s.n.toLocaleString():s.n}</div><div class="l">${s.l}</div></div>`).join('');
+    document.getElementById('cumulLegend').innerHTML=`
+      <span class="chart-legend-item"><span class="dot" style="background:#3b82f6"></span>Total WO</span>
+      <span class="chart-legend-item"><span class="dot line" style="background:#10b981"></span>Close</span>
+      <span class="chart-legend-item"><span class="dot line" style="background:#dc2626"></span>Backlog (ยังไม่เริ่ม)</span>`;
+    if (typeof Chart!=='undefined') drawCumulChartJS(labels, issued, closed, backlog);
+    return;
+  }
   // De-duplicate WOs
   const seen = new Set(); const uniq = rows.filter(r=>{ if(seen.has(r.wo)) return false; seen.add(r.wo); return true; });
   const today = new Date();
@@ -3846,6 +3869,11 @@ function renderCumulativeTrend(rows, period){
     <span class="chart-legend-item"><span class="dot line" style="background:#dc2626"></span>Backlog (สะสม)</span>`;
 
   if (typeof Chart==='undefined') return;
+  drawCumulChartJS(labels, cumIssuedArr, cumCloseArr, backlogArr);
+}
+
+// Draw the WO CUMULATIVE TREND chart (shared by week/month/year and Data_Date views).
+function drawCumulChartJS(labels, cumIssuedArr, cumCloseArr, backlogArr){
   if (ovCumulChartObj) ovCumulChartObj.destroy();
   const ctx = document.getElementById('ovCumulChart').getContext('2d');
   const blueGrad=ctx.createLinearGradient(0,0,0,300); blueGrad.addColorStop(0,'#3b82f6cc'); blueGrad.addColorStop(1,'#3b82f655');
