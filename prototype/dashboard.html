@@ -3872,6 +3872,32 @@ function renderCumulativeTrend(rows, period){
   drawCumulChartJS(labels, cumIssuedArr, cumCloseArr, backlogArr);
 }
 
+// Inline Chart.js plugin: draw each value on the chart (no hover needed).
+// Bars get the value above the top; lines get it above each point. When there
+// are many points, line labels are thinned to every other point to avoid clutter.
+const cumulValueLabels = {
+  id: 'cumulValueLabels',
+  afterDatasetsDraw(chart){
+    const ctx = chart.ctx;
+    const many = (chart.data.labels || []).length > 13;
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.font = "bold 9px 'Sarabun', sans-serif";
+    chart.data.datasets.forEach((ds, di)=>{
+      const meta = chart.getDatasetMeta(di);
+      if (meta.hidden) return;
+      ctx.fillStyle = ds.type === 'bar' ? '#1e40af' : (ds.borderColor || '#334155');
+      meta.data.forEach((el, i)=>{
+        const v = ds.data[i];
+        if (v == null) return;
+        if (many && ds.type !== 'bar' && i % 2 !== 0) return; // thin line labels when dense
+        ctx.fillText(Number(v).toLocaleString(), el.x, el.y - (ds.type === 'bar' ? 4 : 6));
+      });
+    });
+    ctx.restore();
+  }
+};
+
 // Draw the WO CUMULATIVE TREND chart (shared by week/month/year and Data_Date views).
 function drawCumulChartJS(labels, cumIssuedArr, cumCloseArr, backlogArr){
   if (ovCumulChartObj) ovCumulChartObj.destroy();
@@ -3884,6 +3910,7 @@ function drawCumulChartJS(labels, cumIssuedArr, cumCloseArr, backlogArr){
       {type:'line', label:'Backlog', data:backlogArr, borderColor:'#dc2626', backgroundColor:'rgba(220,38,38,.08)', fill:true, tension:.3, borderWidth:2.5, pointRadius:2, borderDash:[4,3], order:1},
     ]},
     options:{responsive:true, maintainAspectRatio:false,
+      layout:{padding:{top:18}},
       interaction:{mode:'index', intersect:false},
       animation:{duration:700, easing:'easeOutQuart'},
       plugins:{legend:{display:false},
@@ -3892,7 +3919,8 @@ function drawCumulChartJS(labels, cumIssuedArr, cumCloseArr, backlogArr){
         y:{beginAtZero:true, grid:{color:'#f1f5f9'}, border:{display:false}, ticks:{font:{size:11}, color:'#94a3b8'}},
         x:{grid:{display:false}, border:{display:false}, ticks:{font:{size:10.5}, color:'#94a3b8', maxRotation:0, maxTicksLimit:12}}
       }
-    }
+    },
+    plugins:[cumulValueLabels]
   });
 }
 
