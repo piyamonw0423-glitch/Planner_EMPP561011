@@ -3782,7 +3782,7 @@ function renderCumulativeTrend(rows, period){
       {l:'Total WO (ล่าสุด)',n:last.total,c:'#2563eb'},
       {l:'Close (ล่าสุด)',n:last.close,c:'#10b981'},
       {l:'Backlog (ล่าสุด)',n:last.totalBacklog,c:'#dc2626'},
-      {l:'จำนวน Snapshot',n:snapTrend.length,c:'#7c3aed'},
+      {l:'Close Rate',n:`${last.total?Math.round(last.close/last.total*100):0}%`,c:'#7c3aed'},
     ].map(s=>`<div class="cumul-tile"><div class="n" style="color:${s.c}">${typeof s.n==='number'?s.n.toLocaleString():s.n}</div><div class="l">${s.l}</div></div>`).join('');
     document.getElementById('cumulLegend').innerHTML=`
       <span class="chart-legend-item"><span class="dot" style="background:#3b82f6"></span>Total WO</span>
