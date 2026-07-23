@@ -24,18 +24,22 @@ export function LoginForm({ callbackUrl }: { callbackUrl: string }) {
         placeholder="you@company.com"
         required
         autoFocus
+        autoComplete="username"
       />
 
       <div style={{ marginTop: 14 }}>
         <label htmlFor="password" style={{ fontSize: 12.5, fontWeight: 600 }}>
           รหัสผ่าน
         </label>
+        {/* autoComplete lets the browser's password manager offer to save and
+            autofill the password — the secure way to "remember" it. */}
         <input
           id="password"
           name="password"
           type="password"
           placeholder="กรอกรหัสผ่าน..."
           required
+          autoComplete="current-password"
         />
       </div>
 

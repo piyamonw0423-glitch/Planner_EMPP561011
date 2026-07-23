@@ -3,7 +3,12 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import type { Role } from "@/generated/prisma/enums";
-import { createUser, updateUserRole, setUserActive } from "@/app/actions/users";
+import {
+  createUser,
+  updateUserRole,
+  setUserActive,
+  resetUserPassword,
+} from "@/app/actions/users";
 
 type UserRow = {
   id: string;
@@ -157,6 +162,9 @@ function UserRowItem({
   onChanged: () => void;
 }) {
   const [busy, setBusy] = useState(false);
+  const [resetOpen, setResetOpen] = useState(false);
+  const [newPw, setNewPw] = useState("");
+  const [pwMsg, setPwMsg] = useState<{ type: "ok" | "error"; text: string } | null>(null);
 
   async function changeRole(role: Role) {
     setBusy(true);
@@ -170,6 +178,24 @@ function UserRowItem({
     await setUserActive({ id: user.id, isActive: !user.isActive });
     setBusy(false);
     onChanged();
+  }
+
+  // Set a NEW password for this user (the old one can never be read back).
+  async function doReset() {
+    setBusy(true);
+    setPwMsg(null);
+    const res = await resetUserPassword({ id: user.id, password: newPw });
+    setBusy(false);
+    if (res.error) {
+      setPwMsg({ type: "error", text: res.error });
+    } else {
+      setPwMsg({
+        type: "ok",
+        text: `ตั้งรหัสใหม่ให้ ${user.email} แล้ว — แจ้งรหัสนี้กับผู้ใช้ และให้เขาเปลี่ยนเองภายหลัง`,
+      });
+      setNewPw("");
+      setResetOpen(false);
+    }
   }
 
   return (
@@ -198,13 +224,73 @@ function UserRowItem({
       </td>
       <td>{new Date(user.createdAt).toLocaleDateString("th-TH")}</td>
       <td>
-        <button
-          className={user.isActive ? "topbtn" : "topbtn primary"}
-          disabled={isSelf || busy}
-          onClick={toggleActive}
-        >
-          {user.isActive ? "ระงับการใช้งาน" : "✓ อนุมัติ"}
-        </button>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          <button
+            className={user.isActive ? "topbtn" : "topbtn primary"}
+            disabled={isSelf || busy}
+            onClick={toggleActive}
+          >
+            {user.isActive ? "ระงับการใช้งาน" : "✓ อนุมัติ"}
+          </button>
+          <button
+            className="topbtn"
+            disabled={busy}
+            onClick={() => {
+              setResetOpen((o) => !o);
+              setPwMsg(null);
+            }}
+            title="ตั้งรหัสผ่านใหม่ให้ผู้ใช้รายนี้ (ใช้เมื่อผู้ใช้ลืมรหัส)"
+          >
+            🔑 ตั้งรหัสใหม่
+          </button>
+        </div>
+
+        {resetOpen && (
+          <div
+            style={{ marginTop: 8, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}
+          >
+            <input
+              type="text"
+              value={newPw}
+              onChange={(e) => setNewPw(e.target.value)}
+              placeholder="รหัสใหม่ อย่างน้อย 8 ตัว"
+              style={{ width: 170 }}
+              autoComplete="off"
+            />
+            <button
+              className="topbtn primary"
+              disabled={busy || newPw.length < 8}
+              onClick={doReset}
+            >
+              {busy ? "กำลังบันทึก..." : "บันทึก"}
+            </button>
+            <button
+              className="topbtn"
+              disabled={busy}
+              onClick={() => {
+                setResetOpen(false);
+                setNewPw("");
+              }}
+            >
+              ยกเลิก
+            </button>
+          </div>
+        )}
+
+        {pwMsg && (
+          <div
+            style={{
+              marginTop: 6,
+              fontSize: 11.5,
+              fontWeight: 600,
+              maxWidth: 320,
+              color: pwMsg.type === "ok" ? "var(--green)" : "var(--red)",
+            }}
+          >
+            {pwMsg.type === "ok" ? "✅ " : "❌ "}
+            {pwMsg.text}
+          </div>
+        )}
       </td>
     </tr>
   );

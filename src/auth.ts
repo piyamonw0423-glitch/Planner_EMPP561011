@@ -29,7 +29,9 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   // Trust the deployment host header (required on non-Vercel hosts like
   // Render/Railway so callback URLs resolve to the real domain).
   trustHost: true,
-  session: { strategy: "jwt" },
+  // Stay signed in for 30 days so users don't have to re-enter their password
+  // every visit ("จดจำฉันไว้"); the session refreshes on activity.
+  session: { strategy: "jwt", maxAge: 30 * 24 * 60 * 60, updateAge: 24 * 60 * 60 },
   pages: { signIn: "/login" },
   providers: [
     Credentials({

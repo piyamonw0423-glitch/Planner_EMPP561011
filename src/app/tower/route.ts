@@ -34,10 +34,13 @@ function loginBar(user: { name: string; role: string }): string {
     user.role === "ADMIN"
       ? `<a href="/dashboard/settings/users" style="background:#e0e7ff;color:#3730a3;padding:4px 12px;border-radius:20px;font-weight:700;text-decoration:none;">👥 จัดการผู้ใช้</a>`
       : "";
+  const pwLink =
+    `<a href="/dashboard/settings/password" style="background:#e0f2fe;color:#075985;padding:4px 12px;border-radius:20px;font-weight:700;text-decoration:none;">🔑 เปลี่ยนรหัส</a>`;
   return (
     `<div style="${box}">` +
     `<span style="background:#dcfce7;color:#15803d;padding:4px 10px;border-radius:20px;font-weight:700;">👤 ${user.name} · ${user.role}</span>` +
     adminLink +
+    pwLink +
     `<a href="/logout" style="background:#fee2e2;color:#b91c1c;padding:4px 12px;border-radius:20px;font-weight:700;text-decoration:none;">ออกจากระบบ</a>` +
     `</div>`
   );
