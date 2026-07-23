@@ -55,7 +55,7 @@ export default async function LoginPage({
           </div>
           <div>
             <div style={{ fontSize: 15, fontWeight: 700 }}>
-              Maintenance Tracking
+              Maintenance Operating System
             </div>
             <div style={{ fontSize: 11, color: "var(--text-soft)" }}>
               Dashboard

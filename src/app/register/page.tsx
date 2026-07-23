@@ -42,7 +42,7 @@ export default function RegisterPage() {
           <div>
             <div style={{ fontSize: 15, fontWeight: 700 }}>สมัครสมาชิก</div>
             <div style={{ fontSize: 11, color: "var(--text-soft)" }}>
-              Maintenance Tracking Dashboard
+              Maintenance Operating System
             </div>
           </div>
         </div>

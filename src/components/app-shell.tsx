@@ -57,7 +57,7 @@ export function AppShell({
         <div className="sidebar-logo">
           <div className="ico">⚙️</div>
           <div>
-            <div className="txt">Maintenance Tracking</div>
+            <div className="txt">Maintenance Operating System</div>
             <div className="sub">Dashboard</div>
           </div>
         </div>
@@ -93,7 +93,7 @@ export function AppShell({
             >
               ☰
             </button>
-            <div className="page-title">Maintenance Tracking</div>
+            <div className="page-title">Maintenance Operating System</div>
           </div>
           <div className="topbar-right">
             <div className="user-chip">
