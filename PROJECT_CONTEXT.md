@@ -430,6 +430,7 @@ CM + Shutdown (วันนี้) → เพิ่ม PM (Preventive) → Predi
 ## 16. Current Outstanding Tasks
 
 ### High Priority
+- [ ] **🔴 กู้ข้อมูลสด (Neon quota เต็ม)** — ปัจจุบันเว็บรันบน fallback (เทรนด์อย่างเดียว) · ทางเลือกฟรี: **(A)** รอโควตารีเซ็ตรายเดือน (เปิด console.neon.tech → Billing/Usage ดูวัน reset · ฟรี เก็บประวัติครบ) หรือ **(B)** ย้ายไป Postgres ฟรีตัวใหม่ (Supabase/Neon account ใหม่) แล้ว rebuild snapshot จาก **ไฟล์ xlsx รายสัปดาห์ในเครื่อง** (`Y2026/{Jan..Jul}/...`) ผ่าน `npm run import <file>` หรือ parser · **อย่าจ่ายเงิน** (โจทย์ 0 บาท) · หลังกู้เสร็จควรทำ server-side aggregation กัน quota เต็มซ้ำ
 - [ ] **ใส่ screenshot Product ลงเด็คสไลด์** — Dashboard ใส่แล้ว (slide 3), เหลือ **Reliability Insight** (ยังเป็น placeholder ในกรอบ) · วิธี: ให้เจ้าของเปิดเว็บ login + F11 fullscreen หน้า Reliability → Win+PrtScn (เซฟลง `C:\Users\ACER\Pictures\Screenshots`) → คัดลอกไฟล์ไป `slides/shot_reliability.png` → แก้ `build5.js` (แทน `phFrame` Reliability ด้วย `addImage`) → rebuild
 - [ ] **อนุมัติผู้ใช้ที่รออยู่** — `kaweepak_s@npp.co.th` (VIEWER, isActive=false) ที่หน้าจัดการผู้ใช้
 - [ ] **ทดสอบ AI Engineer จริง** — เจ้าของยังสร้าง Gemini key ไม่สำเร็จ (เจอ "The request is suspicious" ตอนสร้าง Cloud Project — สาเหตุ VPN/บัญชีองค์กร/เน็ตบริษัท) · ทางแก้: ปิด VPN / ใช้ Gmail ส่วนตัว / สร้าง project ที่ console.cloud.google.com ก่อน / หรือ **เปลี่ยนไป Groq (ฟรี, สมัครง่ายกว่า ไม่ต้องมี project)** ถ้าเจ้าของต้องการ
@@ -600,6 +601,7 @@ node ./node_modules/tsx/dist/cli.mjs _tmp_facts.ts
 | 2026-07-23 | สร้างเอกสารฉบับแรก (20 หัวข้อ) |
 | 2026-07-24 | ตรวจสอบตัวเลขทั้งหมดกับ DB จริง · แก้ Backlog +31%→**+30.0%** (snapshot ใหม่) · แก้ path สไลด์ (อยู่นอก repo) · เพิ่มแผนผังโฟลเดอร์ · เพิ่มรายชื่อผู้ใช้จริง · เพิ่มภาคผนวก A (ตาราง 12 snapshot) · commit เข้า git ครั้งแรก |
 | 2026-07-24 | **แก้ปัญหา "เปิดเว็บครั้งแรกช้า/ดูเหมือนเปิดไม่ได้"** — สาเหตุ = Render free tier spin down · เพิ่ม `/api/health` + GitHub Actions keep-warm (cron 10 นาที) ปลุกเว็บให้ตื่นตลอด (commit `b880996`) |
+| 2026-07-24 | **⚠️ เหตุการณ์สำคัญ: Neon free tier "data transfer quota" เต็ม → `/tower` (เฉพาะตอน login แล้ว) ขึ้น HTTP 500** · สาเหตุราก = สถาปัตยกรรม client-side ส่ง WO ทุกแถว (~5MB) ทุกครั้งที่โหลด (§9 ข้อ 1) กิน egress จนหมดโควตาเดือน · **DB ไม่ได้เสีย/ข้อมูลไม่หาย** แค่ถูกบล็อกจนกว่าโควตารีเซ็ตรายเดือน · **แก้เฉพาะหน้า (commit `aa92afa`):** เพิ่ม `src/lib/fallback-seed.ts` (เทรนด์ 12 snapshot จากภาคผนวก A ฝังในโค้ด) + `getDraftState` try/catch → คืน fallback แทน throw + แบนเนอร์แจ้งสถานะใน `/tower` → เว็บเปิดได้ กราฟเทรนด์ยังโชว์ แต่รายการงานรายตัวว่างจนกว่า DB กลับมา · **ยังไม่แก้ root cause (server-side aggregation) ตามที่เจ้าของสั่ง "ยังไม่แก้ตอนนี้"** — ดู §16 High Priority |
 
 ---
 *จบเอกสาร PROJECT_CONTEXT.md — หากมีการตัดสินใจสำคัญใหม่ในอนาคต ให้อัปเดตไฟล์นี้เป็นอันดับแรก*
