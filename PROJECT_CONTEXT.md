@@ -318,7 +318,7 @@ CM + Shutdown (วันนี้) → เพิ่ม PM (Preventive) → Predi
 5. **Reliability/Equipment จำแนกด้วย keyword ภาษาอังกฤษ** — คำอธิบายภาษาไทยบางส่วนอาจ classify ไม่ครบ
 6. **คุณภาพข้อมูลต้นทาง** — บางแถว `targetStart` มาหลัง `actualFinish` หรือเป็นวันอนาคต (จึงต้องมี `issueDate()` ช่วย normalize ในกราฟ cumulative)
 7. **Facilitate/Shutdown tags/remarks/Equipment master** เก็บใน AppData (กรอกเอง) ยังไม่ผูก WO อัตโนมัติ
-8. **Render free tier** — spin down เมื่อไม่มี traffic (เข้าครั้งแรกช้า ~30 วิ), RAM/CPU จำกัด, import ก้อนใหญ่บน server ช้า (จึงมี `npm run import` รันจากเครื่อง)
+8. **Render free tier** — เดิม spin down เมื่อไม่มี traffic (เข้าครั้งแรกช้า 20–50 วิ) · **แก้แล้ว 2026-07-24** ด้วย keep-warm: `/api/health` (endpoint เบา ไม่แตะ DB) + `.github/workflows/keep-warm.yml` (cron ทุก 10 นาที ปลุกเว็บ — public repo จึงฟรีไม่จำกัด) → เปิดติดทันที · ยังเหลือข้อจำกัด RAM/CPU จำกัด, import ก้อนใหญ่บน server ช้า (จึงมี `npm run import` รันจากเครื่อง)
 9. **Neon free tier** — พื้นที่จำกัด ~0.5GB; ถ้าเก็บ snapshot ขนาดใหญ่หลายวันอาจต้อง prune หรืออัปเกรด
 
 ---
@@ -599,6 +599,7 @@ node ./node_modules/tsx/dist/cli.mjs _tmp_facts.ts
 |---|---|
 | 2026-07-23 | สร้างเอกสารฉบับแรก (20 หัวข้อ) |
 | 2026-07-24 | ตรวจสอบตัวเลขทั้งหมดกับ DB จริง · แก้ Backlog +31%→**+30.0%** (snapshot ใหม่) · แก้ path สไลด์ (อยู่นอก repo) · เพิ่มแผนผังโฟลเดอร์ · เพิ่มรายชื่อผู้ใช้จริง · เพิ่มภาคผนวก A (ตาราง 12 snapshot) · commit เข้า git ครั้งแรก |
+| 2026-07-24 | **แก้ปัญหา "เปิดเว็บครั้งแรกช้า/ดูเหมือนเปิดไม่ได้"** — สาเหตุ = Render free tier spin down · เพิ่ม `/api/health` + GitHub Actions keep-warm (cron 10 นาที) ปลุกเว็บให้ตื่นตลอด (commit `b880996`) |
 
 ---
 *จบเอกสาร PROJECT_CONTEXT.md — หากมีการตัดสินใจสำคัญใหม่ในอนาคต ให้อัปเดตไฟล์นี้เป็นอันดับแรก*
