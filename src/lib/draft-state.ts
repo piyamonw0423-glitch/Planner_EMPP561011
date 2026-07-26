@@ -1,5 +1,6 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
+import { buildFallbackState } from "@/lib/fallback-seed";
 import type { WoStatus } from "@/generated/prisma/enums";
 
 // The standalone prototype (dashboard_3.html) uses lowercase "status keys"
@@ -89,6 +90,9 @@ export type DraftState = {
     fileName: string | null;
     availableDates: string[];
     selectedDate: string | null;
+    // Set by the fallback path when the live DB can't be read (e.g. Neon free
+    // tier quota exhausted). The UI shows an honest banner instead of a 500.
+    dbUnavailable?: boolean;
     // Per-Data_Date totals across ALL snapshots, for the WO CUMULATIVE TREND
     // "ตาม Data_Date" view (real counts of each weekly data pull).
     snapshotTrend: Array<{
@@ -185,6 +189,18 @@ function mapRow(r: WoLike): DraftWoRow {
 // and available, otherwise the latest snapshot. Falls back to the WorkOrder
 // table if no snapshots exist yet (e.g. before the first snapshot-aware import).
 export async function getDraftState(requestedDate?: string): Promise<DraftState> {
+  try {
+    return await getDraftStateFromDb(requestedDate);
+  } catch (err) {
+    // The live DB is unreachable (Neon free-tier data-transfer quota exhausted,
+    // cold-start that never woke, etc.). Serve a valid fallback so the page opens
+    // with the verified trend + an honest banner instead of an HTTP 500.
+    console.error("[getDraftState] falling back to bundled seed:", err);
+    return buildFallbackState();
+  }
+}
+
+async function getDraftStateFromDb(requestedDate?: string): Promise<DraftState> {
   const [distinctDates, updates, activity, lastBatch, appDataRows] =
     await withDbRetry(() => Promise.all([
       prisma.workOrderSnapshot.findMany({

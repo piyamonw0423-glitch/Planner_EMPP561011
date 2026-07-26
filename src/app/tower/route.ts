@@ -91,14 +91,25 @@ export async function GET(request: Request) {
 
   const bar = loginBar(user);
 
+  // When the live DB can't be read, getDraftState returns a fallback (verified
+  // trend, no row-level data). Show an honest banner so the sparse dashboard
+  // isn't mistaken for a bug.
+  const dbDownBanner = state.meta.dbUnavailable
+    ? `<div style="position:fixed;top:0;left:0;right:0;z-index:99999;background:#b45309;color:#fff;` +
+      `font-family:'Sarabun',sans-serif;font-size:13px;font-weight:600;text-align:center;` +
+      `padding:8px 14px;box-shadow:0 2px 8px rgba(0,0,0,.25);">` +
+      `⚠️ ฐานข้อมูลออนไลน์ถึงโควตาฟรีชั่วคราว — กราฟแนวโน้มยังแสดงได้ ` +
+      `แต่รายการงานรายตัวจะกลับมาครบเมื่อโควตารีเซ็ต</div>`
+    : "";
+
   // Insert the seed BEFORE the main script runs (loadAll reads it at boot),
   // and the login/logout bar at the top of the body.
   let out = html.includes("</head>")
     ? html.replace("</head>", `${inject}</head>`)
     : inject + html;
   out = out.includes("<body")
-    ? out.replace(/(<body[^>]*>)/, `$1${bar}`)
-    : bar + out;
+    ? out.replace(/(<body[^>]*>)/, `$1${dbDownBanner}${bar}`)
+    : dbDownBanner + bar + out;
 
   return new Response(out, {
     status: 200,
