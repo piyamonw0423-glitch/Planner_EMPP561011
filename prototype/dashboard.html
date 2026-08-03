@@ -5804,15 +5804,28 @@ function renderCapacityDashboard(rows, period, targetId){
     if (period==='week'){ const w=new Date(today); w.setDate(w.getDate()-7); return d>=w&&d<=today; }
     const m=new Date(today.getFullYear(),today.getMonth(),1); return d>=m&&d<=today;
   }
-  const teamWOs = {};
-  rows.filter(periodFilter).forEach(r=>{ const t=(r.team||'').trim(); teamWOs[t]=(teamWOs[t]||0)+1; });
+  // Aggregate REAL estimated/actual labor hours per team across the viewed rows
+  // (selected snapshot + calendar filters). These are historical snapshots, so a
+  // "today"-relative window (old periodFilter) hid everything — removed.
+  const teamEst = {}, teamAct = {}, teamWOs = {};
+  rows.forEach(r=>{
+    const t=(r.team||'').trim();
+    teamWOs[t]=(teamWOs[t]||0)+1;
+    teamEst[t]=(teamEst[t]||0)+(Number(r.plannedHours)||0);
+    let ah = Number(r.actualHours)||0;
+    if (!ah && r.actualStart && r.actualFinish){
+      const diff=(new Date(r.actualFinish)-new Date(r.actualStart))/3600000;
+      if (diff>0 && diff<200) ah=diff;
+    }
+    teamAct[t]=(teamAct[t]||0)+ah;
+  });
 
   el.innerHTML = Object.entries(TEAM_CAPACITY).map(([team, tc])=>{
     const wos = teamWOs[team]||0;
-    const estHours = wos * AVG_HOURS_PER_WO;
+    const estHours = teamEst[team]||0;
+    const actData = { hours: teamAct[team]||0 };
     const capacity = tc[cap];
     const utilPct = capacity>0 ? Math.round(estHours/capacity*100) : 0;
-    const actData = calcActualHours(rows, team, period);
     const over = utilPct>100;
     const available = Math.max(0, capacity-estHours).toFixed(1);
     const barColor = utilPct>100?'#dc2626':utilPct>80?'#f59e0b':'#10b981';
@@ -5848,7 +5861,7 @@ function renderCapacityDashboard(rows, period, targetId){
       <div style="font-size:10px;color:${barColor};font-weight:700;margin-top:4px;text-align:right;">
         ${over?`⚠️ Over Capacity +${(estHours-capacity).toFixed(1)} hr`:`✅ Available ${available} hr`}
       </div>
-      <div style="font-size:10px;color:#64748b;margin-top:6px;">📋 ${wos} งาน · Avg ${AVG_HOURS_PER_WO}h/งาน</div>
+      <div style="font-size:10px;color:#64748b;margin-top:6px;">📋 ${wos} งาน · Avg ${wos?(estHours/wos).toFixed(1):'0'}h/งาน</div>
     </div>`;
   }).join('');
 }

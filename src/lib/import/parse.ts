@@ -140,6 +140,9 @@ export function parseRows(json: RawRow[]): ParsedWorkOrder[] {
           pick(row, ["Data_Date", "Data Date", "DataDate", "DATA_DATE", "Data_date"])
         ),
         plannedHours: pickFloat(row, [
+          "Estimated Labor Hours",
+          "Est Labor Hours",
+          "Estimated Hours",
           "Planned Hours",
           "PlannedHours",
           "Plan Hours",
@@ -150,6 +153,7 @@ export function parseRows(json: RawRow[]): ParsedWorkOrder[] {
           "WO_PlannedHrs",
         ]),
         actualHours: pickFloat(row, [
+          "Actual Labor Hours",
           "Actual Hours",
           "ActualHours",
           "Act Hours",
