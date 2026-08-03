@@ -207,7 +207,9 @@ function mapRow(r: WoLike): DraftWoRow {
 // fresh so edits show immediately.
 // ---------------------------------------------------------------------------
 
-const CACHE_KEY = "__dashboard_cache_v1__";
+// v2: dates are matched by ::date (timezone-independent). Bumped from v1 so any
+// stale v1 blob written before that fix is ignored.
+const CACHE_KEY = "__dashboard_cache_v2__";
 
 type HeavyCache = {
   version: string;
@@ -220,11 +222,21 @@ const globalForCache = globalThis as unknown as { __dashRam?: HeavyCache | null 
 
 async function queryWorkOrders(selectedDate: string | null): Promise<DraftWoRow[]> {
   if (selectedDate) {
+    // Match by calendar date via ::date. dataDate is `timestamp without time
+    // zone`, so an exact-timestamp equality is timezone-dependent and returns
+    // nothing on a server whose TZ differs from where the rows were written
+    // (e.g. Render/UTC vs a +7 import machine). ::date compares the naive day
+    // and is stable everywhere.
     const snaps = await withDbRetry(() =>
-      prisma.workOrderSnapshot.findMany({
-        where: { dataDate: new Date(`${selectedDate}T00:00:00.000Z`) },
-        orderBy: { targetStart: "desc" },
-      })
+      prisma.$queryRawUnsafe<WoLike[]>(
+        `SELECT wo, "desc", location, asset, plant, team, priority, "statusAJ", status,
+                overdue, supervisor, "workLocation", "woType", "workRefCode",
+                "targetStart", "targetFinish", "actualStart", "actualFinish", "dataDate",
+                "plannedHours", "actualHours"
+         FROM work_order_snapshots WHERE "dataDate"::date = $1::date
+         ORDER BY "targetStart" DESC`,
+        selectedDate
+      )
     );
     return snaps.map(mapRow);
   }
@@ -236,24 +248,26 @@ async function queryWorkOrders(selectedDate: string | null): Promise<DraftWoRow[
 }
 
 async function computeTrend(): Promise<SnapshotTrendPoint[]> {
+  // Group by the naive calendar date (::date) so the trend's dates line up with
+  // availableDates and stay stable across server timezones (see queryWorkOrders).
   const snapAgg = await withDbRetry(() =>
-    prisma.workOrderSnapshot.groupBy({
-      by: ["dataDate", "status"],
-      _count: { _all: true },
-    })
+    prisma.$queryRawUnsafe<Array<{ d: string; status: string | null; n: number }>>(
+      `SELECT "dataDate"::date::text AS d, status, COUNT(*)::int AS n
+       FROM work_order_snapshots WHERE "dataDate" IS NOT NULL GROUP BY 1, 2`
+    )
   );
   const trendMap = new Map<
     string,
     { total: number; close: number; completed: number; planning: number; backlog: number; inprogress: number }
   >();
   for (const r of snapAgg) {
-    const isoDate = r.dataDate.toISOString().slice(0, 10);
+    const isoDate = r.d;
     let g = trendMap.get(isoDate);
     if (!g) {
       g = { total: 0, close: 0, completed: 0, planning: 0, backlog: 0, inprogress: 0 };
       trendMap.set(isoDate, g);
     }
-    const c = r._count._all;
+    const c = Number(r.n);
     g.total += c;
     g[snapGroup(r.status)] += c;
   }
@@ -370,13 +384,13 @@ async function getDraftStateCached(requestedDate?: string): Promise<DraftState> 
   // Light queries — small and always fetched fresh so edits appear immediately.
   // The big cache blob is excluded from the appData fetch so we don't transfer
   // it on every request (it's read only when re-warming, in loadBlob).
-  const [distinctDates, updates, activity, lastBatch, appDataRows] = await withDbRetry(() =>
+  const [dateRows, updates, activity, lastBatch, appDataRows] = await withDbRetry(() =>
     Promise.all([
-      prisma.workOrderSnapshot.findMany({
-        distinct: ["dataDate"],
-        select: { dataDate: true },
-        orderBy: { dataDate: "desc" },
-      }),
+      // Distinct calendar dates via ::date (timezone-stable), newest first.
+      prisma.$queryRawUnsafe<Array<{ d: string }>>(
+        `SELECT DISTINCT "dataDate"::date::text AS d
+         FROM work_order_snapshots WHERE "dataDate" IS NOT NULL ORDER BY d DESC`
+      ),
       prisma.workOrderUpdate.findMany(),
       prisma.activityLog.findMany({
         where: { action: "STATUS_UPDATE" },
@@ -385,14 +399,15 @@ async function getDraftStateCached(requestedDate?: string): Promise<DraftState> 
         include: { user: { select: { name: true } } },
       }),
       prisma.importBatch.findFirst({ orderBy: { createdAt: "desc" } }),
-      prisma.appData.findMany({ where: { key: { not: CACHE_KEY } } }),
+      // Exclude any cache blob (all versions) so it's never sent on a normal load.
+      prisma.appData.findMany({ where: { NOT: { key: { startsWith: "__dashboard_cache_" } } } }),
     ])
   );
 
   const appData: Record<string, unknown> = {};
   for (const r of appDataRows) appData[r.key] = r.value;
 
-  const availableDates = distinctDates.map((d) => d.dataDate.toISOString().slice(0, 10));
+  const availableDates = dateRows.map((d) => d.d);
   const selectedDate =
     requestedDate && availableDates.includes(requestedDate)
       ? requestedDate
