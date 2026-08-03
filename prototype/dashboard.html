@@ -1072,6 +1072,7 @@
               <option value="4">P4 ⚪</option>
             </select>
             <select class="cal-filter-select" id="calFilterRefCode"><option value="">All Ref Code</option></select>
+            <label style="display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:#0f172a;background:#fff;padding:6px 11px;border-radius:8px;white-space:nowrap;cursor:pointer;" title="ซ่อนงานจ้าง (PR) และงานซื้อ (MRP) เพื่อดู workload งานซ่อมจริง"><input type="checkbox" id="calOnlyRepair" checked style="cursor:pointer;width:15px;height:15px;"> 🔧 เฉพาะงานซ่อม</label>
           </div>
         </div>
         <div class="cal-legends" id="calLegends">
@@ -4098,6 +4099,17 @@ function syncJumpSelectors(){
   document.getElementById('calJumpYear').value   = String(calYear);
 }
 
+// งานจ้าง (PR) / งานซื้อ (MRP) — description ขึ้นต้นด้วย "(PR)" หรือ "(MRP)".
+// แยกออกจากงานซ่อมจริง เพื่อให้ปฏิทินสะท้อน workload ของทีมช่างจริงๆ.
+function isProcurementWO(r){
+  const d = (r.desc||'').trim().toUpperCase();
+  return d.startsWith('(PR)') || d.startsWith('(MRP)');
+}
+// ค่าเริ่มต้น = ซ่อน PR/MRP (ติ๊กถูก). ถ้าไม่มี checkbox ให้ถือว่าเปิด (ซ่อน).
+function calOnlyRepairOn(){
+  const el = document.getElementById('calOnlyRepair');
+  return el ? el.checked : true;
+}
 function renderCalendar(){
   const fpSel = document.getElementById('calFilterPlant');
   const fsSel = document.getElementById('calFilterSup');
@@ -4141,7 +4153,7 @@ function renderCalendar(){
 
   if (!fpSel._inited){
     fpSel._inited = true;
-    ['calFilterPlant','calFilterSup','calFilterTeam','calFilterPriority','calFilterRefCode'].forEach(id=>{
+    ['calFilterPlant','calFilterSup','calFilterTeam','calFilterPriority','calFilterRefCode','calOnlyRepair'].forEach(id=>{
       const el=document.getElementById(id); if(el) el.addEventListener('change', ()=>{ calViewMode==='month' ? drawCalGrid() : drawYearOverview(); });
     });
     document.getElementById('calPrev').addEventListener('click', ()=>{ calMonth--; if(calMonth<0){calMonth=11;calYear--;} syncJumpSelectors(); drawCalGrid(); });
@@ -4191,6 +4203,7 @@ function drawYearOverview(){
     if (sup   && (r.supervisor||'').trim()!==sup) return false;
     if (team  && (r.team||'').trim()!==team) return false;
     if (refCode && (r.workRefCode||'').trim()!==refCode) return false;
+    if (calOnlyRepairOn() && isProcurementWO(r)) return false;
     return true;
   });
 
@@ -4390,6 +4403,7 @@ function drawCalGrid(){
     if (sup && (r.supervisor||'').trim()!==sup) return false;
     if (team && (r.team||'').trim()!==team) return false;
     if (refCode && (r.workRefCode||'').trim()!==refCode) return false;
+    if (calOnlyRepairOn() && isProcurementWO(r)) return false;
     return true;
   });
   const byDay = {};
@@ -4616,6 +4630,7 @@ function getCalFilteredRows(){
     if(team&&(r.team||'').trim()!==team)return false;
     if(pri&&String(r.priority||'').trim()!==pri)return false;
     if(refCode&&(r.workRefCode||'').trim()!==refCode)return false;
+    if(calOnlyRepairOn()&&isProcurementWO(r))return false;
     return true;
   });
 }
