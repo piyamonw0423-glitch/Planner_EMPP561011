@@ -1072,7 +1072,11 @@
               <option value="4">P4 ⚪</option>
             </select>
             <select class="cal-filter-select" id="calFilterRefCode"><option value="">All Ref Code</option></select>
-            <label style="display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:#0f172a;background:#fff;padding:6px 11px;border-radius:8px;white-space:nowrap;cursor:pointer;" title="ซ่อนงานจ้าง (PR) และงานซื้อ (MRP) เพื่อดู workload งานซ่อมจริง"><input type="checkbox" id="calOnlyRepair" checked style="cursor:pointer;width:15px;height:15px;"> 🔧 เฉพาะงานซ่อม</label>
+            <select class="cal-filter-select" id="calWorkView" title="เลือกประเภทงานที่แสดงบนปฏิทิน">
+              <option value="repair">🔧 เฉพาะงานซ่อม (ไม่รวม PR/MRP)</option>
+              <option value="nis">🏭 เฉพาะงาน NIS</option>
+              <option value="all">ทั้งหมด (รวม PR/MRP)</option>
+            </select>
           </div>
         </div>
         <div class="cal-legends" id="calLegends">
@@ -4105,10 +4109,20 @@ function isProcurementWO(r){
   const d = (r.desc||'').trim().toUpperCase();
   return d.startsWith('(PR)') || d.startsWith('(MRP)');
 }
-// ค่าเริ่มต้น = ซ่อน PR/MRP (ติ๊กถูก). ถ้าไม่มี checkbox ให้ถือว่าเปิด (ซ่อน).
-function calOnlyRepairOn(){
-  const el = document.getElementById('calOnlyRepair');
-  return el ? el.checked : true;
+// งาน NIS (งานช่างในโรงงาน: ตัด/กลึง/fab/เขียนแบบ) — description ขึ้นต้น "(NIS)".
+function isNisWO(r){
+  return (r.desc||'').trim().toUpperCase().startsWith('(NIS)');
+}
+// มุมมองงานบนปฏิทิน: 'repair' = ซ่อน PR/MRP (ค่าเริ่มต้น) · 'nis' = เฉพาะ NIS · 'all' = ทั้งหมด
+function calWorkView(){
+  const el = document.getElementById('calWorkView');
+  return el ? el.value : 'repair';
+}
+function calRowPassesView(r){
+  const v = calWorkView();
+  if (v === 'nis') return isNisWO(r);
+  if (v === 'all') return true;
+  return !isProcurementWO(r);
 }
 function renderCalendar(){
   const fpSel = document.getElementById('calFilterPlant');
@@ -4153,7 +4167,7 @@ function renderCalendar(){
 
   if (!fpSel._inited){
     fpSel._inited = true;
-    ['calFilterPlant','calFilterSup','calFilterTeam','calFilterPriority','calFilterRefCode','calOnlyRepair'].forEach(id=>{
+    ['calFilterPlant','calFilterSup','calFilterTeam','calFilterPriority','calFilterRefCode','calWorkView'].forEach(id=>{
       const el=document.getElementById(id); if(el) el.addEventListener('change', ()=>{ calViewMode==='month' ? drawCalGrid() : drawYearOverview(); });
     });
     document.getElementById('calPrev').addEventListener('click', ()=>{ calMonth--; if(calMonth<0){calMonth=11;calYear--;} syncJumpSelectors(); drawCalGrid(); });
@@ -4203,7 +4217,7 @@ function drawYearOverview(){
     if (sup   && (r.supervisor||'').trim()!==sup) return false;
     if (team  && (r.team||'').trim()!==team) return false;
     if (refCode && (r.workRefCode||'').trim()!==refCode) return false;
-    if (calOnlyRepairOn() && isProcurementWO(r)) return false;
+    if (!calRowPassesView(r)) return false;
     return true;
   });
 
@@ -4403,7 +4417,7 @@ function drawCalGrid(){
     if (sup && (r.supervisor||'').trim()!==sup) return false;
     if (team && (r.team||'').trim()!==team) return false;
     if (refCode && (r.workRefCode||'').trim()!==refCode) return false;
-    if (calOnlyRepairOn() && isProcurementWO(r)) return false;
+    if (!calRowPassesView(r)) return false;
     return true;
   });
   const byDay = {};
@@ -4630,7 +4644,7 @@ function getCalFilteredRows(){
     if(team&&(r.team||'').trim()!==team)return false;
     if(pri&&String(r.priority||'').trim()!==pri)return false;
     if(refCode&&(r.workRefCode||'').trim()!==refCode)return false;
-    if(calOnlyRepairOn()&&isProcurementWO(r))return false;
+    if(!calRowPassesView(r))return false;
     return true;
   });
 }
