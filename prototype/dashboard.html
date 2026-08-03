@@ -5807,21 +5807,30 @@ function renderCapacityDashboard(rows, period, targetId){
   // Aggregate REAL estimated/actual labor hours per team across the viewed rows
   // (selected snapshot + calendar filters). These are historical snapshots, so a
   // "today"-relative window (old periodFilter) hid everything — removed.
-  const teamEst = {}, teamAct = {}, teamWOs = {};
+  // Split by status: Est = estimated hours of OPEN WOs (งานค้าง = workload
+  // remaining); Act = actual hours of DONE WOs (งานที่ปิดแล้ว = work completed).
+  // Mixing them lets already-closed work dominate and hides the real load.
+  const teamEst = {}, teamAct = {}, teamOpenWO = {}, teamDoneWO = {};
   rows.forEach(r=>{
     const t=(r.team||'').trim();
-    teamWOs[t]=(teamWOs[t]||0)+1;
-    teamEst[t]=(teamEst[t]||0)+(Number(r.plannedHours)||0);
-    let ah = Number(r.actualHours)||0;
-    if (!ah && r.actualStart && r.actualFinish){
-      const diff=(new Date(r.actualFinish)-new Date(r.actualStart))/3600000;
-      if (diff>0 && diff<200) ah=diff;
+    const g = statusGroup(r);
+    if (g==='close' || g==='completed'){
+      teamDoneWO[t]=(teamDoneWO[t]||0)+1;
+      let ah = Number(r.actualHours)||0;
+      if (!ah && r.actualStart && r.actualFinish){
+        const diff=(new Date(r.actualFinish)-new Date(r.actualStart))/3600000;
+        if (diff>0 && diff<200) ah=diff;
+      }
+      teamAct[t]=(teamAct[t]||0)+ah;
+    } else {
+      teamOpenWO[t]=(teamOpenWO[t]||0)+1;
+      teamEst[t]=(teamEst[t]||0)+(Number(r.plannedHours)||0);
     }
-    teamAct[t]=(teamAct[t]||0)+ah;
   });
 
   el.innerHTML = Object.entries(TEAM_CAPACITY).map(([team, tc])=>{
-    const wos = teamWOs[team]||0;
+    const wos = teamOpenWO[team]||0;
+    const doneWos = teamDoneWO[team]||0;
     const estHours = teamEst[team]||0;
     const actData = { hours: teamAct[team]||0 };
     const capacity = tc[cap];
@@ -5844,11 +5853,11 @@ function renderCapacityDashboard(rows, period, targetId){
         </div>
         <div style="background:#eff6ff;border-radius:8px;padding:8px;text-align:center;">
           <div style="font-size:16px;font-weight:800;color:#2563eb;">${estHours.toFixed(1)}</div>
-          <div style="font-size:8.5px;color:#94a3b8;font-weight:700;text-transform:uppercase;">Est. Hours</div>
+          <div style="font-size:8.5px;color:#94a3b8;font-weight:700;text-transform:uppercase;">Est · งานค้าง</div>
         </div>
         <div style="background:#f0fdf4;border-radius:8px;padding:8px;text-align:center;">
           <div style="font-size:16px;font-weight:800;color:#16a34a;">${actData.hours.toFixed(1)}</div>
-          <div style="font-size:8.5px;color:#94a3b8;font-weight:700;text-transform:uppercase;">Actual Hours</div>
+          <div style="font-size:8.5px;color:#94a3b8;font-weight:700;text-transform:uppercase;">Act · งานเสร็จ</div>
         </div>
         <div style="background:${over?'#fee2e2':'#f8fafc'};border-radius:8px;padding:8px;text-align:center;">
           <div style="font-size:16px;font-weight:800;color:${barColor};">${utilPct}%</div>
@@ -5861,7 +5870,7 @@ function renderCapacityDashboard(rows, period, targetId){
       <div style="font-size:10px;color:${barColor};font-weight:700;margin-top:4px;text-align:right;">
         ${over?`⚠️ Over Capacity +${(estHours-capacity).toFixed(1)} hr`:`✅ Available ${available} hr`}
       </div>
-      <div style="font-size:10px;color:#64748b;margin-top:6px;">📋 ${wos} งาน · Avg ${wos?(estHours/wos).toFixed(1):'0'}h/งาน</div>
+      <div style="font-size:10px;color:#64748b;margin-top:6px;">📋 ${wos} งานค้าง · ${doneWos} ปิดแล้ว · Avg ${wos?(estHours/wos).toFixed(1):'0'}h/งานค้าง</div>
     </div>`;
   }).join('');
 }
