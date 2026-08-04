@@ -5795,6 +5795,7 @@ function renderCapacityDashboard(rows, period, targetId){
   const el = document.getElementById(targetId || 'calCapacityPanel');
   if (!el) return;
   const cap = period==='day' ? 'daily' : period==='week' ? 'weekly' : 'monthly';
+  const unit = period==='day' ? 'วัน' : period==='week' ? 'สัปดาห์' : 'เดือน';
   const today = new Date();
   // Count WOs per team in current period
   function periodFilter(r){
@@ -5849,7 +5850,7 @@ function renderCapacityDashboard(rows, period, targetId){
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px;">
         <div style="background:#f8fafc;border-radius:8px;padding:8px;text-align:center;">
           <div style="font-size:16px;font-weight:800;color:${tc.color};">${capacity.toLocaleString()}</div>
-          <div style="font-size:8.5px;color:#94a3b8;font-weight:700;text-transform:uppercase;">Capacity/เดือน</div>
+          <div style="font-size:8.5px;color:#94a3b8;font-weight:700;text-transform:uppercase;">Capacity/${unit}</div>
         </div>
         <div style="background:#eff6ff;border-radius:8px;padding:8px;text-align:center;">
           <div style="font-size:16px;font-weight:800;color:#2563eb;">${estHours.toFixed(1)}</div>
@@ -5868,7 +5869,7 @@ function renderCapacityDashboard(rows, period, targetId){
         <div style="width:${Math.min(utilPct,100)}%;height:100%;background:${barColor};border-radius:4px;transition:width .4s;"></div>
       </div>
       <div style="font-size:10px;color:${barColor};font-weight:700;margin-top:4px;text-align:right;">
-        ${over?`⚠️ งานค้าง ~${(utilPct/100).toFixed(1)} เดือน (เกินกำลัง/เดือน)`:`✅ งานค้าง ~${(utilPct/100).toFixed(1)} เดือนของกำลัง`}
+        ${over?`⚠️ งานค้าง ~${(utilPct/100).toFixed(1)} ${unit} (เกินกำลัง/${unit})`:`✅ งานค้าง ~${(utilPct/100).toFixed(1)} ${unit}ของกำลัง`}
       </div>
       <div style="font-size:10px;color:#64748b;margin-top:6px;">📋 ${wos} งานค้าง · ${doneWos} ปิดแล้ว · Avg ${wos?(estHours/wos).toFixed(1):'0'}h/งานค้าง</div>
     </div>`;
