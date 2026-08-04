@@ -4607,8 +4607,8 @@ function drawCalGrid(){
 }
 
 let calTrendChartObj = null;
-let _calCapPeriod = 'day';
-let _calYearCapPeriod = 'day';
+let _calCapPeriod = 'month';
+let _calYearCapPeriod = 'month';
 function calYearCapToggle(btn){
   // Only affect year view buttons
   const yearRight = document.getElementById('calYearRight');
@@ -5849,7 +5849,7 @@ function renderCapacityDashboard(rows, period, targetId){
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px;">
         <div style="background:#f8fafc;border-radius:8px;padding:8px;text-align:center;">
           <div style="font-size:16px;font-weight:800;color:${tc.color};">${capacity.toLocaleString()}</div>
-          <div style="font-size:8.5px;color:#94a3b8;font-weight:700;text-transform:uppercase;">Capacity (hr)</div>
+          <div style="font-size:8.5px;color:#94a3b8;font-weight:700;text-transform:uppercase;">Capacity/เดือน</div>
         </div>
         <div style="background:#eff6ff;border-radius:8px;padding:8px;text-align:center;">
           <div style="font-size:16px;font-weight:800;color:#2563eb;">${estHours.toFixed(1)}</div>
@@ -5857,7 +5857,7 @@ function renderCapacityDashboard(rows, period, targetId){
         </div>
         <div style="background:#f0fdf4;border-radius:8px;padding:8px;text-align:center;">
           <div style="font-size:16px;font-weight:800;color:#16a34a;">${actData.hours.toFixed(1)}</div>
-          <div style="font-size:8.5px;color:#94a3b8;font-weight:700;text-transform:uppercase;">Act · งานเสร็จ</div>
+          <div style="font-size:8.5px;color:#94a3b8;font-weight:700;text-transform:uppercase;">Act · เสร็จสะสม</div>
         </div>
         <div style="background:${over?'#fee2e2':'#f8fafc'};border-radius:8px;padding:8px;text-align:center;">
           <div style="font-size:16px;font-weight:800;color:${barColor};">${utilPct}%</div>
@@ -5868,7 +5868,7 @@ function renderCapacityDashboard(rows, period, targetId){
         <div style="width:${Math.min(utilPct,100)}%;height:100%;background:${barColor};border-radius:4px;transition:width .4s;"></div>
       </div>
       <div style="font-size:10px;color:${barColor};font-weight:700;margin-top:4px;text-align:right;">
-        ${over?`⚠️ Over Capacity +${(estHours-capacity).toFixed(1)} hr`:`✅ Available ${available} hr`}
+        ${over?`⚠️ งานค้าง ~${(utilPct/100).toFixed(1)} เดือน (เกินกำลัง/เดือน)`:`✅ งานค้าง ~${(utilPct/100).toFixed(1)} เดือนของกำลัง`}
       </div>
       <div style="font-size:10px;color:#64748b;margin-top:6px;">📋 ${wos} งานค้าง · ${doneWos} ปิดแล้ว · Avg ${wos?(estHours/wos).toFixed(1):'0'}h/งานค้าง</div>
     </div>`;
