@@ -728,7 +728,7 @@
             <div style="font-size:22px;filter:drop-shadow(0 2px 4px rgba(0,0,0,.2));">👥</div>
             <div style="flex:1;">
               <div style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:800;color:#fff;letter-spacing:.3px;">Workload by Team  </div>
-              <div style="font-size:10.5px;color:rgba(255,255,255,.7);margin-top:2px;">แยกงานตามทีม — นับจากงาน Open</div>
+              <div style="font-size:10.5px;color:rgba(255,255,255,.7);margin-top:2px;">แยกงานตามทีม — นับจากงาน Backlog</div>
             </div>
             
           </div>
@@ -1705,7 +1705,7 @@
       <div class="ri-grid-2">
         <div class="card ri-widget">
           <div class="ri-widget-title">🔁 Top 10 Repeat Repair (30 วัน)</div>
-          <div class="ri-widget-sub">งานซ่อมซ้ำ: Asset + Category เดียวกัน ≥2 ครั้ง</div>
+          <div class="ri-widget-sub">งานซ่อมซ้ำ: Asset + Category เดียวกัน ≥2 ครั้ง · 🔍 คลิกแถวดูงานทั้งหมด</div>
           <div class="table-scroll" style="max-height:320px;">
             <table id="riRepeatTable">
               <thead><tr><th>Asset</th><th>Category</th><th>Team</th><th>ครั้ง</th><th>Avg Gap(วัน)</th><th>ล่าสุด</th><th>WO ล่าสุด</th><th>WO ทั้งหมด</th><th>P1</th><th>Backlog</th></tr></thead>
@@ -1715,7 +1715,7 @@
         </div>
         <div class="card ri-widget">
           <div class="ri-widget-title">⚠️ Top 10 Chronic Assets (90 วัน)</div>
-          <div class="ri-widget-sub">อุปกรณ์ที่เกิดปัญหาซ้ำมากที่สุด</div>
+          <div class="ri-widget-sub">อุปกรณ์ที่เกิดปัญหาซ้ำมากที่สุด · 🔍 คลิกแถวดูงานทั้งหมด</div>
           <div class="table-scroll" style="max-height:320px;">
             <table>
               <thead><tr><th>Asset</th><th>Location</th><th>Team</th><th>WO ทั้งหมด</th><th>Repair</th><th>Overdue</th><th>แนะนำ</th></tr></thead>
@@ -3157,8 +3157,10 @@ function renderOverview(){
 
   function buildCard(team, list, isTotal, stripeColor, bg, color){
     const wo = list.length;
-    // Team card "Open" = the team's outstanding work (Planning + Backlog + In Progress).
-    const backlog = list.filter(r=> isOpen(r)).length;
+    // Team card "Backlog" = work not yet started (Planning + Backlog), matching the
+    // TOTAL BACKLOG tile in KEY PERFORMANCE SUMMARY (isNotStarted) so the team
+    // cards sum to the same total.
+    const backlog = list.filter(r=> isNotStarted(r)).length;
     const closeCount = list.filter(r=> statusGroup(r)==='close').length;
     const compCount = list.filter(r=> statusGroup(r)==='completed').length;
     const overdue = list.filter(r=> r.overdue==='Overdue' && statusGroup(r)!=='close' && statusGroup(r)!=='completed').length;
@@ -3181,7 +3183,7 @@ function renderOverview(){
     const W1s=new Date(today.getTime()-7*86400000), W2s=new Date(today.getTime()-14*86400000);
     function thisWeek(l,fn){ return l.filter(r=>{ const d=new Date(fn(r)||0); return fn(r)&&d>=W1s; }); }
     function lastWeek(l,fn){ return l.filter(r=>{ const d=new Date(fn(r)||0); return fn(r)&&d>=W2s&&d<W1s; }); }
-    const bOpen = list.filter(r=>isOpen(r));
+    const bOpen = list.filter(r=>isNotStarted(r));
     const bRecent=thisWeek(bOpen,r=>r.targetStart).length, bPrev=lastWeek(bOpen,r=>r.targetStart).length;
     const closedList=list.filter(r=>statusGroup(r)==='close');
     const cRecent=thisWeek(closedList,r=>r.actualFinish||r.targetFinish).length;
@@ -3214,7 +3216,7 @@ function renderOverview(){
             <div style="font-size:10px;font-weight:800;color:${isTotal?'#c7d2fe':'#94a3b8'};margin-top:2px;">100%</div>
           </div>
           <div class="ov-kpi-stat">
-            <div class="lbl">Open</div>
+            <div class="lbl">Backlog</div>
             <div class="val" style="color:${isTotal?'#fcd34d':'#d97706'}">${backlog.toLocaleString()} <span style="font-size:10px;color:#94a3b8;font-weight:700;">(${blPct}%)</span></div>
             <div style="display:flex;align-items:center;justify-content:center;gap:4px;margin-top:3px;">${trendBadge(bPct,false)}${bSpark}</div>
           </div>
@@ -3230,7 +3232,7 @@ function renderOverview(){
         </div>
       </div>
       <div class="ov-kpi-footer">
-        <span class="ratio-label">Open Ratio</span>
+        <span class="ratio-label">Backlog Ratio</span>
         <div class="ov-kpi-ratiobar"><div class="ov-kpi-ratiobar-fill" style="width:${Math.min(ratio,100)}%;background:${healthColor};"></div></div>
         <span class="ratio-val">${ratio}%</span>
       </div>
@@ -5157,8 +5159,8 @@ function drawReliability(){
     const gap = e.count>1 ? Math.round(e.totalGap/(e.count-1)) : '-';
     const rca = e.count>=4||(typeof gap==='number'&&gap<7);
     const woList = e.wos.map(w=>w.wo).join(', ');
-    return `<tr>
-      <td style="font-weight:700;color:var(--primary)">${e.asset}</td>
+    return `<tr onclick="riDrillAsset(this.dataset.asset)" data-asset="${escapeHtml(e.asset)}" style="cursor:pointer;" title="คลิกดูงานทั้งหมดของ ${escapeHtml(e.asset)}">
+      <td style="font-weight:700;color:var(--primary)">🔍 ${e.asset}</td>
       <td><span class="pill" style="background:#f1f5f9;color:#334155;font-size:10px;">${e.category}</span></td>
       <td style="font-size:11.5px;">${e.team||'-'}</td>
       <td style="font-weight:700;color:#dc2626">${e.count}</td>
@@ -5176,7 +5178,7 @@ function drawReliability(){
   const cBody = document.getElementById('riChronicBody');
   cBody.innerHTML = chronicAssets.slice(0,10).map(e=>{
     const tag = e.total>=10?'<span class="rca-badge">CHRONIC</span>':e.total>=5?'<span class="rca-badge" style="background:#fef3c7;color:#92400e;">HIGH</span>':'<span class="rca-badge rca-ok">LOW</span>';
-    return `<tr><td style="font-weight:700;color:var(--primary)">${e.asset}</td><td style="font-size:11px;">${e.location||'-'}</td><td style="font-size:11px;">${e.team||'-'}</td><td style="font-weight:700">${e.total}</td><td>${e.repair}</td><td style="color:#dc2626">${e.overdue}</td><td>${tag}</td></tr>`;
+    return `<tr onclick="riDrillAsset(this.dataset.asset)" data-asset="${escapeHtml(e.asset)}" style="cursor:pointer;" title="คลิกดูงานทั้งหมดของ ${escapeHtml(e.asset)}"><td style="font-weight:700;color:var(--primary)">🔍 ${e.asset}</td><td style="font-size:11px;">${e.location||'-'}</td><td style="font-size:11px;">${e.team||'-'}</td><td style="font-weight:700">${e.total}</td><td>${e.repair}</td><td style="color:#dc2626">${e.overdue}</td><td>${tag}</td></tr>`;
   }).join('');
 
   // Category chart
@@ -5200,6 +5202,51 @@ function drawReliability(){
     const warning = e.gap<=3?'<span class="rca-badge">⚡ '+e.gap+' วัน</span>':e.gap<=7?'<span class="rca-badge" style="background:#fef3c7;color:#92400e;">'+e.gap+' วัน</span>':'<span class="rca-badge rca-ok">'+e.gap+' วัน</span>';
     return `<tr><td style="font-weight:700;color:var(--primary)">${e.asset}</td><td style="font-size:11px;">${e.category}</td><td style="font-size:10.5px;color:#64748b;">${e.wo1}</td><td style="font-size:10.5px;color:#64748b;">${e.wo2}</td><td>${warning}</td><td>${e.gap<=7?'<span class="rca-badge">RCA</span>':''}</td></tr>`;
   }).join('');
+}
+
+// Drill-down: click an asset in the Reliability tables to see all its WOs (full
+// repair history of that asset in the current snapshot), respecting Team/Plant.
+function riDrillAsset(asset){
+  asset = (asset||'').trim();
+  if(!asset) return;
+  const team = (document.getElementById('riTeam')||{}).value||'';
+  const plant = (document.getElementById('riPlant')||{}).value||'';
+  const seen = new Set();
+  const rows = RAW_DATA.filter(r=>{
+    if ((r.asset||'').trim() !== asset) return false;
+    if (team && (r.team||'').trim()!==team) return false;
+    if (plant && (r.plant||'').trim()!==plant) return false;
+    if (seen.has(r.wo)) return false; seen.add(r.wo); return true;
+  }).sort((a,b)=> (new Date(b.targetStart||0)) - (new Date(a.targetStart||0)));
+  const existing=document.getElementById('kpiDrillModal'); if(existing) existing.remove();
+  const el=document.createElement('div'); el.id='kpiDrillModal';
+  el.style.cssText='position:fixed;inset:0;z-index:300;background:rgba(15,23,42,.6);backdrop-filter:blur(4px);display:flex;align-items:flex-start;justify-content:center;padding:40px 16px;overflow-y:auto;';
+  const loc = (rows[0]&&rows[0].location)||'';
+  el.innerHTML=`<div style="background:#fff;border-radius:16px;width:100%;max-width:960px;box-shadow:0 20px 60px rgba(0,0,0,.25);overflow:hidden;">
+    <div style="background:linear-gradient(135deg,#3b0764,#7c3aed);padding:14px 20px;display:flex;align-items:center;justify-content:space-between;">
+      <div><div style="font-size:15px;font-weight:800;color:#fff;">🔧 Asset: ${escapeHtml(asset)}</div>
+        <div style="font-size:11px;color:#ddd6fe;">${loc?escapeHtml(loc)+' · ':''}${rows.length} รายการ (ประวัติงานของอุปกรณ์)</div></div>
+      <button onclick="document.getElementById('kpiDrillModal').remove()" style="background:rgba(255,255,255,.15);border:none;color:#fff;width:32px;height:32px;border-radius:8px;font-size:16px;cursor:pointer;">✕</button>
+    </div>
+    <div style="overflow-x:auto;max-height:70vh;"><table style="width:100%;border-collapse:collapse;">
+      <thead><tr style="font-size:10.5px;font-weight:700;color:#64748b;text-transform:uppercase;position:sticky;top:0;background:#f8fafc;">
+        <th style="padding:8px 12px;text-align:left;">WO No.</th><th style="padding:8px 12px;text-align:left;">Description</th>
+        <th style="padding:8px 12px;">Category</th><th style="padding:8px 12px;">Team</th><th style="padding:8px 12px;">Priority</th><th style="padding:8px 12px;">Status</th><th style="padding:8px 12px;">Target Start</th><th style="padding:8px 12px;">Overdue</th>
+      </tr></thead><tbody>
+      ${rows.slice(0,200).map(r=>`<tr onclick="kpiDrillOpenWo('${r.wo}')" style="border-bottom:1px solid #f1f5f9;cursor:pointer;font-size:11.5px;">
+        <td style="padding:7px 12px;font-weight:700;color:#7c3aed;">${r.wo}</td>
+        <td style="padding:7px 12px;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(r.desc||'')}</td>
+        <td style="padding:7px 12px;text-align:center;font-size:10px;">${riCategory(r.desc)||'-'}</td>
+        <td style="padding:7px 12px;text-align:center;">${r.team||'-'}</td>
+        <td style="padding:7px 12px;text-align:center;"><span class="pill ${priPillClass(r.priority)}">${priLabel(r.priority)}</span></td>
+        <td style="padding:7px 12px;text-align:center;font-size:10.5px;">${escapeHtml((r.status||'-').toString())}</td>
+        <td style="padding:7px 12px;text-align:center;">${fmtDate(r.targetStart)||'—'}</td>
+        <td style="padding:7px 12px;text-align:center;">${r.overdue==='Overdue'?'⚠️':''}</td>
+      </tr>`).join('')}
+      </tbody></table></div>
+  </div>`;
+  document.body.appendChild(el);
+  el.addEventListener('click',e=>{ if(e.target===el) el.remove(); });
 }
 
 function computeRepeatRepairs(rows, catFilter){
