@@ -109,6 +109,10 @@ export type DraftState = {
     // Per-Data_Date totals across ALL snapshots, for the WO CUMULATIVE TREND
     // "ตาม Data_Date" view (real counts of each weekly data pull).
     snapshotTrend: SnapshotTrendPoint[];
+    // Same trend broken down by Plant, so the client can filter the historical
+    // trend by plant (the browser only holds the current snapshot's rows).
+    // Each plant's array is aligned to the same date axis as snapshotTrend.
+    snapshotTrendByPlant?: Record<string, SnapshotTrendPoint[]>;
   };
   // Shared app-managed blobs (reschedule, shutdown, facilitate, ... ) keyed by
   // their original localStorage key.
@@ -207,13 +211,14 @@ function mapRow(r: WoLike): DraftWoRow {
 // fresh so edits show immediately.
 // ---------------------------------------------------------------------------
 
-// v2: dates are matched by ::date (timezone-independent). Bumped from v1 so any
-// stale v1 blob written before that fix is ignored.
-const CACHE_KEY = "__dashboard_cache_v2__";
+// v3: blob now also carries the per-plant trend breakdown. Bumped so older
+// blobs (which lack it) are ignored and recomputed.
+const CACHE_KEY = "__dashboard_cache_v3__";
 
 type HeavyCache = {
   version: string;
   trend: SnapshotTrendPoint[];
+  trendByPlant: Record<string, SnapshotTrendPoint[]>;
   byDate: Map<string, DraftWoRow[]>;
 };
 
@@ -247,48 +252,70 @@ async function queryWorkOrders(selectedDate: string | null): Promise<DraftWoRow[
   return orders.map(mapRow);
 }
 
-async function computeTrend(): Promise<SnapshotTrendPoint[]> {
-  // Group by the naive calendar date (::date) so the trend's dates line up with
-  // availableDates and stay stable across server timezones (see queryWorkOrders).
+type TrendAgg = { total: number; close: number; completed: number; planning: number; backlog: number; inprogress: number };
+const mkTrendAgg = (): TrendAgg => ({ total: 0, close: 0, completed: 0, planning: 0, backlog: 0, inprogress: 0 });
+const trendPoint = (date: string, g: TrendAgg): SnapshotTrendPoint => ({
+  date,
+  total: g.total,
+  close: g.close,
+  completed: g.completed,
+  planning: g.planning,
+  backlog: g.backlog,
+  inprogress: g.inprogress,
+  totalBacklog: g.planning + g.backlog,
+  open: g.planning + g.backlog + g.inprogress,
+});
+
+// Per-Data_Date trend, both as an all-plants total and broken down by plant so
+// the client can filter the historical trend by plant. Each plant's series is
+// aligned to the same (sorted) date axis as the total, zero-filled where a plant
+// has no rows for a date. Group by ::date (timezone-stable, see queryWorkOrders).
+async function computeTrendData(): Promise<{
+  total: SnapshotTrendPoint[];
+  byPlant: Record<string, SnapshotTrendPoint[]>;
+}> {
   const snapAgg = await withDbRetry(() =>
-    prisma.$queryRawUnsafe<Array<{ d: string; status: string | null; n: number }>>(
-      `SELECT "dataDate"::date::text AS d, status, COUNT(*)::int AS n
-       FROM work_order_snapshots WHERE "dataDate" IS NOT NULL GROUP BY 1, 2`
+    prisma.$queryRawUnsafe<Array<{ d: string; status: string | null; plant: string | null; n: number }>>(
+      `SELECT "dataDate"::date::text AS d, status,
+              COALESCE(NULLIF(TRIM(plant), ''), '(ไม่ระบุ)') AS plant, COUNT(*)::int AS n
+       FROM work_order_snapshots WHERE "dataDate" IS NOT NULL GROUP BY 1, 2, 3`
     )
   );
-  const trendMap = new Map<
-    string,
-    { total: number; close: number; completed: number; planning: number; backlog: number; inprogress: number }
-  >();
+  const totalMap = new Map<string, TrendAgg>();
+  const plantMap = new Map<string, Map<string, TrendAgg>>(); // plant -> date -> agg
+  const dateSet = new Set<string>();
   for (const r of snapAgg) {
-    const isoDate = r.d;
-    let g = trendMap.get(isoDate);
-    if (!g) {
-      g = { total: 0, close: 0, completed: 0, planning: 0, backlog: 0, inprogress: 0 };
-      trendMap.set(isoDate, g);
-    }
     const c = Number(r.n);
-    g.total += c;
-    g[snapGroup(r.status)] += c;
+    const grp = snapGroup(r.status);
+    dateSet.add(r.d);
+    let t = totalMap.get(r.d);
+    if (!t) { t = mkTrendAgg(); totalMap.set(r.d, t); }
+    t.total += c; t[grp] += c;
+    const plant = r.plant || "(ไม่ระบุ)";
+    let pm = plantMap.get(plant);
+    if (!pm) { pm = new Map(); plantMap.set(plant, pm); }
+    let pa = pm.get(r.d);
+    if (!pa) { pa = mkTrendAgg(); pm.set(r.d, pa); }
+    pa.total += c; pa[grp] += c;
   }
-  return [...trendMap.entries()]
-    .sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([date, g]) => ({
-      date,
-      total: g.total,
-      close: g.close,
-      completed: g.completed,
-      planning: g.planning,
-      backlog: g.backlog,
-      inprogress: g.inprogress,
-      totalBacklog: g.planning + g.backlog,
-      open: g.planning + g.backlog + g.inprogress,
-    }));
+  const dates = [...dateSet].sort((a, b) => a.localeCompare(b));
+  const toSeries = (m: Map<string, TrendAgg>): SnapshotTrendPoint[] =>
+    dates.map((date) => trendPoint(date, m.get(date) ?? mkTrendAgg()));
+  const byPlant: Record<string, SnapshotTrendPoint[]> = {};
+  for (const [plant, m] of plantMap) byPlant[plant] = toSeries(m);
+  return { total: toSeries(totalMap), byPlant };
 }
 
 // Layer 2: read/write the compact persisted blob. Best-effort — any failure is
 // treated as a cache miss so the page always falls back to a live compute.
-async function loadBlob(): Promise<{ version: string; trend: SnapshotTrendPoint[]; byDate: Record<string, DraftWoRow[]> } | null> {
+type CacheBlob = {
+  version: string;
+  trend: SnapshotTrendPoint[];
+  trendByPlant: Record<string, SnapshotTrendPoint[]>;
+  byDate: Record<string, DraftWoRow[]>;
+};
+
+async function loadBlob(): Promise<CacheBlob | null> {
   try {
     const row = await withDbRetry(() =>
       prisma.appData.findUnique({ where: { key: CACHE_KEY } })
@@ -302,11 +329,7 @@ async function loadBlob(): Promise<{ version: string; trend: SnapshotTrendPoint[
   }
 }
 
-async function saveBlob(blob: {
-  version: string;
-  trend: SnapshotTrendPoint[];
-  byDate: Record<string, DraftWoRow[]>;
-}): Promise<void> {
+async function saveBlob(blob: CacheBlob): Promise<void> {
   try {
     const gz = gzipSync(Buffer.from(JSON.stringify(blob), "utf8")).toString("base64");
     await prisma.appData.upsert({
@@ -332,11 +355,15 @@ async function ramWorkOrders(selectedDate: string | null): Promise<DraftWoRow[]>
 async function getHeavy(
   version: string,
   selectedDate: string | null
-): Promise<{ trend: SnapshotTrendPoint[]; workOrders: DraftWoRow[] }> {
+): Promise<{
+  trend: SnapshotTrendPoint[];
+  trendByPlant: Record<string, SnapshotTrendPoint[]>;
+  workOrders: DraftWoRow[];
+}> {
   // Layer 1: RAM hit — no heavy DB read at all.
   const ram = globalForCache.__dashRam;
   if (ram && ram.version === version) {
-    return { trend: ram.trend, workOrders: await ramWorkOrders(selectedDate) };
+    return { trend: ram.trend, trendByPlant: ram.trendByPlant, workOrders: await ramWorkOrders(selectedDate) };
   }
 
   // Layer 2: warm from the compact persisted blob (cheap re-warm after restart).
@@ -345,23 +372,25 @@ async function getHeavy(
     globalForCache.__dashRam = {
       version,
       trend: blob.trend,
+      trendByPlant: blob.trendByPlant ?? {},
       byDate: new Map(Object.entries(blob.byDate)),
     };
-    return { trend: blob.trend, workOrders: await ramWorkOrders(selectedDate) };
+    return { trend: blob.trend, trendByPlant: blob.trendByPlant ?? {}, workOrders: await ramWorkOrders(selectedDate) };
   }
 
   // Miss (new import or cold with no valid blob): the one heavy read. Compute,
   // fill RAM, and persist the blob for the next cold start.
-  const trend = await computeTrend();
+  const { total: trend, byPlant: trendByPlant } = await computeTrendData();
   const workOrders = await queryWorkOrders(selectedDate);
   const key = selectedDate ?? "";
   globalForCache.__dashRam = {
     version,
     trend,
+    trendByPlant,
     byDate: new Map([[key, workOrders]]),
   };
-  await saveBlob({ version, trend, byDate: { [key]: workOrders } });
-  return { trend, workOrders };
+  await saveBlob({ version, trend, trendByPlant, byDate: { [key]: workOrders } });
+  return { trend, trendByPlant, workOrders };
 }
 
 // Read the shared state from Postgres, shaped like the prototype's payload.
@@ -452,6 +481,7 @@ async function getDraftStateCached(requestedDate?: string): Promise<DraftState> 
       availableDates,
       selectedDate,
       snapshotTrend: heavy.trend,
+      snapshotTrendByPlant: heavy.trendByPlant,
     },
     appData,
   };

@@ -3777,11 +3777,25 @@ function renderCumulativeTrend(rows, period){
   // Data_Dates in the DB), not a bucketing of the current snapshot.
   const snapTrend = (window.__MT_SEED__ && window.__MT_SEED__.meta && window.__MT_SEED__.meta.snapshotTrend) || [];
   if (period==='datadate' && snapTrend.length){
-    const labels = snapTrend.map(s=>{ const d=new Date(s.date+'T00:00:00'); return isNaN(d.getTime())?s.date:d.toLocaleDateString('th-TH',{day:'numeric',month:'short',year:'2-digit'}); });
-    const issued = snapTrend.map(s=>s.total);
-    const closed = snapTrend.map(s=>s.close);
-    const backlog = snapTrend.map(s=>s.totalBacklog);
-    const last = snapTrend[snapTrend.length-1];
+    // Respect the Plant filter: the server sends a per-plant breakdown of the
+    // historical trend, so if plants are selected we sum only those; otherwise
+    // we show the all-plants total. (Other filters can't be applied here — the
+    // browser only holds the current snapshot, not every historical one.)
+    const byPlant = (window.__MT_SEED__ && window.__MT_SEED__.meta && window.__MT_SEED__.meta.snapshotTrendByPlant) || null;
+    const selPlants = (typeof msfGet==='function') ? (msfGet('plant')||[]) : [];
+    let series = snapTrend;
+    if (byPlant && selPlants.length){
+      series = snapTrend.map((s,i)=>{
+        const a = {date:s.date,total:0,close:0,completed:0,planning:0,backlog:0,inprogress:0,totalBacklog:0,open:0};
+        selPlants.forEach(p=>{ const pt=(byPlant[p]||[])[i]; if(pt){ a.total+=pt.total; a.close+=pt.close; a.completed+=pt.completed; a.planning+=pt.planning; a.backlog+=pt.backlog; a.inprogress+=pt.inprogress; a.totalBacklog+=pt.totalBacklog; a.open+=pt.open; } });
+        return a;
+      });
+    }
+    const labels = series.map(s=>{ const d=new Date(s.date+'T00:00:00'); return isNaN(d.getTime())?s.date:d.toLocaleDateString('th-TH',{day:'numeric',month:'short',year:'2-digit'}); });
+    const issued = series.map(s=>s.total);
+    const closed = series.map(s=>s.close);
+    const backlog = series.map(s=>s.totalBacklog);
+    const last = series[series.length-1];
     document.getElementById('cumulSummary').innerHTML=[
       {l:'Total WO (ล่าสุด)',n:last.total,c:'#2563eb'},
       {l:'Close (ล่าสุด)',n:last.close,c:'#10b981'},
