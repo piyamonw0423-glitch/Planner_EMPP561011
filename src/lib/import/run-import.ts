@@ -108,6 +108,87 @@ function daysOf(rows: ParsedWorkOrder[]): string[] {
   return [...set];
 }
 
+// How many months of raw per-Data_Date snapshots to keep. The historical TREND
+// lives forever in work_order_daily_summary, so this only bounds the redundant
+// row-level detail. Change this one number to adjust retention.
+export const SNAPSHOT_RETENTION_MONTHS = 6;
+
+// Prune raw work_order_snapshots older than the retention window. Only the
+// redundant per-Data_Date detail is dropped — the trend history is preserved in
+// the summary layer (never pruned) and each WO's latest state stays in
+// work_orders. SAFETY: (1) anchored to the latest Data_Date, not wall-clock, so
+// a pause in imports never deletes the newest data; (2) a day is deleted ONLY if
+// it is already represented in the summary, guaranteeing its aggregate survives.
+// Pass { dryRun: true } to preview without deleting.
+export async function pruneOldSnapshots(opts?: {
+  retentionMonths?: number;
+  dryRun?: boolean;
+}): Promise<{ cutoff: string | null; deletedDays: string[]; deletedRows: number }> {
+  const months = opts?.retentionMonths ?? SNAPSHOT_RETENTION_MONTHS;
+  await ensureSummaryTable();
+
+  const mx = await prisma.$queryRawUnsafe<Array<{ d: string | null; cutoff: string | null }>>(
+    `SELECT MAX("dataDate")::date::text AS d,
+            (MAX("dataDate")::date - ($1 || ' months')::interval)::date::text AS cutoff
+     FROM work_order_snapshots`,
+    String(months)
+  );
+  const cutoff = mx[0]?.cutoff ?? null;
+  if (!mx[0]?.d || !cutoff) return { cutoff, deletedDays: [], deletedRows: 0 };
+
+  // Days strictly older than the cutoff that ARE already summarized -> safe.
+  const victims = await prisma.$queryRawUnsafe<Array<{ day: string }>>(
+    `SELECT DISTINCT "dataDate"::date::text AS day
+     FROM work_order_snapshots
+     WHERE "dataDate" IS NOT NULL
+       AND "dataDate"::date::text < $1
+       AND "dataDate"::date::text IN (SELECT day FROM work_order_daily_summary)
+     ORDER BY 1`,
+    cutoff
+  );
+  const days = victims.map((v) => v.day);
+  if (days.length === 0) return { cutoff, deletedDays: [], deletedRows: 0 };
+
+  if (opts?.dryRun) {
+    const c = await prisma.$queryRawUnsafe<Array<{ n: number }>>(
+      `SELECT COUNT(*)::int AS n FROM work_order_snapshots
+       WHERE "dataDate"::date::text = ANY($1::text[])`,
+      days
+    );
+    return { cutoff, deletedDays: days, deletedRows: Number(c[0]?.n ?? 0) };
+  }
+
+  const res = await prisma.$executeRawUnsafe(
+    `DELETE FROM work_order_snapshots WHERE "dataDate"::date::text = ANY($1::text[])`,
+    days
+  );
+  return { cutoff, deletedDays: days, deletedRows: Number(res) };
+}
+
+// Run prune after an import and record it in the activity log if anything was
+// removed. Never lets a prune failure break the import that triggered it.
+async function autoPrune(userId?: string) {
+  try {
+    const r = await pruneOldSnapshots();
+    if (r.deletedRows > 0) {
+      await prisma.activityLog.create({
+        data: {
+          userId: userId ?? null,
+          action: "PRUNE",
+          detail: {
+            retentionMonths: SNAPSHOT_RETENTION_MONTHS,
+            cutoff: r.cutoff,
+            deletedDays: r.deletedDays,
+            deletedRows: r.deletedRows,
+          },
+        },
+      });
+    }
+  } catch (e) {
+    console.error("[autoPrune] skipped:", e);
+  }
+}
+
 // Incremental, low-memory CSV import (for large Google-Sheet URL refreshes on a
 // small server): stream-parse, keep only rows for Data_Dates not already stored,
 // upsert those snapshots, then rebuild WorkOrder from snapshots in SQL.
@@ -150,6 +231,7 @@ export async function runIncrementalCsvImport(opts: {
   }
   await rebuildWorkOrdersFromSnapshots();
   await rebuildDailySummaryForDays([...newDates].map((d) => d.slice(0, 10)));
+  await autoPrune(importedById);
 
   await prisma.activityLog.create({
     data: {
@@ -329,6 +411,7 @@ export async function runGvizIncrementalImport(opts: {
   }
   await rebuildWorkOrdersFromSnapshots();
   await rebuildDailySummaryForDays(newDates);
+  await autoPrune(opts.importedById);
   await prisma.activityLog.create({
     data: {
       userId: opts.importedById,
@@ -389,6 +472,7 @@ export async function runImport(opts: {
     await upsertSnapshotBatch(part, batch.id);
   }
   await rebuildDailySummaryForDays(daysOf(snapRows));
+  await autoPrune(importedById);
 
   await prisma.activityLog.create({
     data: {
