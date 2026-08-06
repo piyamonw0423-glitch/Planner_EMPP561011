@@ -335,6 +335,17 @@ CM + Shutdown (วันนี้) → เพิ่ม PM (Preventive) → Predi
 
 > เฟส 1 (+ ส่วนฟรีของเฟส 2 เช่น auto-refresh) ทำได้บนต้นทุน 0 บาท · ส่วนที่ต้องขอสนับสนุนคือ Maximo API + real-time infrastructure
 
+### งานขยายหลายโรงไฟฟ้า (Multi-plant scaling — engineering, 2026-08)
+
+> แยกจาก Product Roadmap ข้างบน — นี่คืองานเทคนิคเพื่อรองรับ 9 โรงไฟฟ้าบนต้นทุน 0 บาท
+
+- **โรง = กลุ่มของ plant ย่อย** ผ่าน `siteOfPlant()` ใน `prototype/dashboard.html`:
+  `PP34`=PP3/PP4 · `PP561011`=PP5/PP6/PP10/PP11 · `PP789`=PP7/PP8/PP9 (ผู้ใช้ยืนยันแล้ว)
+- **Step 1 — Multi-file import (เสร็จ):** อัปโหลด Excel หลายไฟล์พร้อมกันได้ (1 ไฟล์/โรง) WO ไม่ซ้ำเพราะ Maximo ระบบเดียว → รวมเป็น batch เดียว
+- **Step 1 — ตัวกรอง "โรงไฟฟ้า" (เสร็จ):** เพิ่ม filter เดียวในหน้า Overview (ไม่สร้างตาราง/UI ใหม่) กรองทั้ง KPI และ WO Cumulative Trend; ตอนนี้มีแต่ข้อมูลกลุ่ม 561011 จะเห็นโรงอื่นเมื่อ import ไฟล์เข้ามา
+- **Step 2 — Summary layer (เสร็จ):** ตาราง `work_order_daily_summary` (day × plant × status → count) เป็น **ชั้นสรุปถาวรขนาดเล็ก** สร้าง/อัปเดตด้วย raw SQL (`ensureSummaryTable` + `rebuildDailySummaryForDays` ใน `run-import.ts`, ไม่ต้อง migration) รีบิลด์เฉพาะวันที่ import เข้ามา · trend อ่านจากตารางนี้แทนการสแกน `work_order_snapshots` ทั้งหมด (มี fallback ไปสแกน snapshots ถ้ายังไม่ได้ backfill) · backfill ครั้งเดียวด้วย `npm run build:summary` (verified 13 วันตรงกับ snapshots ทุกวัน)
+- **Step 3 — ยังไม่ทำ:** prune raw `work_order_snapshots` เก่า (เก็บ ~6–12 เดือน) โดยประวัติ trend ยังอยู่ครบใน summary layer · auto-refresh ผ่าน GitHub Actions
+
 ---
 
 ## 11. ThinkAble Competition Strategy
