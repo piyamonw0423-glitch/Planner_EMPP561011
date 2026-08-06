@@ -866,6 +866,7 @@
             .msf-empty{padding:10px;text-align:center;color:#94a3b8;font-size:12px;}
           </style>
           <div class="ov-filters">
+            <div class="ov-filter-group"><label>โรงไฟฟ้า</label><div class="msf" data-key="site"></div></div>
             <div class="ov-filter-group"><label>Plant</label><div class="msf" data-key="plant"></div></div>
             <div class="ov-filter-group"><label>Status</label><div class="msf" data-key="status"></div></div>
             <div class="ov-filter-group"><label>Work Type</label><div class="msf" data-key="workType"></div></div>
@@ -2999,6 +3000,9 @@ function initOverviewFilters(){
 
   // Build the multi-select dropdowns (each allows choosing more than one value).
   const opt = arr => arr.map(v=>({value:v, label:v}));
+  // โรงไฟฟ้า (power plant) groups the sub-plants (PP34 = PP3+PP4, etc.).
+  const sites = Array.from(new Set(plants.map(p=> siteOfPlant(p)).filter(Boolean))).sort();
+  msfInit('site', opt(sites), renderOverview);
   msfInit('plant', opt(plants), renderOverview);
   msfInit('team', opt(teams), renderOverview);
   msfInit('supervisor', opt(sups), renderOverview);
@@ -3022,7 +3026,7 @@ function initOverviewFilters(){
   document.getElementById('ovFrom').addEventListener('change', renderOverview);
   document.getElementById('ovTo').addEventListener('change', renderOverview);
   document.getElementById('ovReset').addEventListener('click', ()=>{
-    ['plant','status','priority','team','supervisor','workType','workRefCode'].forEach(k=>{ if(typeof msfClear==='function') msfClear(k); });
+    ['site','plant','status','priority','team','supervisor','workType','workRefCode'].forEach(k=>{ if(typeof msfClear==='function') msfClear(k); });
     document.getElementById('ovFrom').value = '';
     document.getElementById('ovTo').value = '';
     renderOverview();
@@ -3048,6 +3052,17 @@ function statusGroup(r){
   if (PLANNING_STATUSES.has(s)) return 'planning';                        // Wait for plan/schedule
   if (BACKLOG_STATUSES.has(s) || s.startsWith('WAPPR')) return 'backlog'; // waiting material/approval
   return 'inprogress'; // INPRG/ASSIGNED/RETURNED/REWORK/REJECTED/... = active
+}
+// Group a sub-plant code (PP3, PP5, PP10, ...) into its power plant (โรงไฟฟ้า)
+// for the top-level filter. WO numbers are globally unique across plants, so
+// this is only used for filtering/labelling. Adjust the mapping if a plant
+// belongs to a different power plant.
+function siteOfPlant(plant){
+  const p = (plant||'').toString().trim().toUpperCase().replace(/\s+/g,'');
+  if (['PP3','PP4'].includes(p)) return 'PP34';
+  if (['PP5','PP6','PP10','PP11'].includes(p)) return 'PP561011';
+  if (['PP7','PP8','PP9'].includes(p)) return 'PP789';
+  return p || '(ไม่ระบุ)';
 }
 // Open = not closed and not completed (Planning + Backlog + In Progress).
 function isOpen(r){ const g=statusGroup(r); return g==='planning'||g==='backlog'||g==='inprogress'; }
@@ -3093,6 +3108,7 @@ function ovStatusMatch(r, status){
 }
 function getOverviewFilteredRows(){
   // Multi-select filters: each returns an array of chosen values (empty = no filter).
+  const sitesF   = (typeof msfGet==='function') ? msfGet('site')       : [];
   const plants   = (typeof msfGet==='function') ? msfGet('plant')      : [];
   const statuses = (typeof msfGet==='function') ? msfGet('status')     : [];
   const prios    = (typeof msfGet==='function') ? msfGet('priority')   : [];
@@ -3105,6 +3121,7 @@ function getOverviewFilteredRows(){
   const to = document.getElementById('ovTo').value ? new Date(document.getElementById('ovTo').value) : null;
   if (to) to.setHours(23,59,59,999);
   return RAW_DATA.filter(r=>{
+    if (sitesF.length && !sitesF.includes(siteOfPlant(r.plant))) return false;
     if (plants.length && !plants.includes((r.plant||'').toString().trim())) return false;
     if (teams.length  && !teams.includes((r.team||'').toString().trim()))  return false;
     if (sups.length   && !sups.includes((r.supervisor||'').toString().trim())) return false;
@@ -3777,17 +3794,22 @@ function renderCumulativeTrend(rows, period){
   // Data_Dates in the DB), not a bucketing of the current snapshot.
   const snapTrend = (window.__MT_SEED__ && window.__MT_SEED__.meta && window.__MT_SEED__.meta.snapshotTrend) || [];
   if (period==='datadate' && snapTrend.length){
-    // Respect the Plant filter: the server sends a per-plant breakdown of the
-    // historical trend, so if plants are selected we sum only those; otherwise
-    // we show the all-plants total. (Other filters can't be applied here — the
-    // browser only holds the current snapshot, not every historical one.)
+    // Respect the โรงไฟฟ้า (site) + Plant filters: the server sends a per-plant
+    // breakdown of the historical trend, so we sum only the plants that pass the
+    // current selection; with no site/plant filter we show the all-plants total.
+    // (Other filters can't be applied here — the browser only holds the current
+    // snapshot, not every historical one.)
     const byPlant = (window.__MT_SEED__ && window.__MT_SEED__.meta && window.__MT_SEED__.meta.snapshotTrendByPlant) || null;
+    const selSites  = (typeof msfGet==='function') ? (msfGet('site')||[])  : [];
     const selPlants = (typeof msfGet==='function') ? (msfGet('plant')||[]) : [];
     let series = snapTrend;
-    if (byPlant && selPlants.length){
+    if (byPlant && (selSites.length || selPlants.length)){
+      let effPlants = Object.keys(byPlant);
+      if (selSites.length)  effPlants = effPlants.filter(p=> selSites.includes(siteOfPlant(p)));
+      if (selPlants.length) effPlants = effPlants.filter(p=> selPlants.includes(p));
       series = snapTrend.map((s,i)=>{
         const a = {date:s.date,total:0,close:0,completed:0,planning:0,backlog:0,inprogress:0,totalBacklog:0,open:0};
-        selPlants.forEach(p=>{ const pt=(byPlant[p]||[])[i]; if(pt){ a.total+=pt.total; a.close+=pt.close; a.completed+=pt.completed; a.planning+=pt.planning; a.backlog+=pt.backlog; a.inprogress+=pt.inprogress; a.totalBacklog+=pt.totalBacklog; a.open+=pt.open; } });
+        effPlants.forEach(p=>{ const pt=(byPlant[p]||[])[i]; if(pt){ a.total+=pt.total; a.close+=pt.close; a.completed+=pt.completed; a.planning+=pt.planning; a.backlog+=pt.backlog; a.inprogress+=pt.inprogress; a.totalBacklog+=pt.totalBacklog; a.open+=pt.open; } });
         return a;
       });
     }
