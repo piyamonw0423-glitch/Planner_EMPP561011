@@ -11,7 +11,8 @@
     "db:push": "prisma db push",
     "db:studio": "prisma studio",
     "db:seed": "tsx prisma/seed.ts",
-    "import": "tsx scripts/import-sheet.ts"
+    "import": "tsx scripts/import-sheet.ts",
+    "build:summary": "tsx scripts/build-summary.ts"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.8.0",

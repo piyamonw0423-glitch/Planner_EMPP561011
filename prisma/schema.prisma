@@ -156,6 +156,27 @@ model WorkOrderSnapshot {
   @@map("work_order_snapshots")
 }
 
+// Permanent aggregate "summary layer" for the WO CUMULATIVE TREND history.
+// One row per (Data_Date day x plant x raw status) with a count. This is the
+// data-warehouse layer: tiny and never pruned, so the historical trend survives
+// even after old raw work_order_snapshots rows are pruned (Phase 3). Rebuilt
+// incrementally on every import (only the imported days), and read by
+// computeTrendData() instead of scanning the full snapshots table.
+// NOTE: the table is created/maintained via raw SQL in run-import.ts
+// (CREATE TABLE IF NOT EXISTS + INSERT ... GROUP BY); this model exists so the
+// schema stays truthful. `count` maps to column `cnt` to avoid the SQL keyword.
+model WorkOrderDailySummary {
+  day       String   // YYYY-MM-DD, naive calendar day of Data_Date (::date::text)
+  plant     String   // normalized; '(ไม่ระบุ)' when blank
+  status    String   // UPPER(TRIM(status)); '' when blank
+  count     Int      @map("cnt")
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@id([day, plant, status])
+  @@index([day])
+  @@map("work_order_daily_summary")
+}
+
 // Shared key-value store for app-managed blobs that were previously kept in
 // each browser's localStorage (planner reschedule, shutdown tags/remarks,
 // facilitate service, outsource, equipment master). Whole-blob, last-write-wins.

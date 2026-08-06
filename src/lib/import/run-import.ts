@@ -41,6 +41,73 @@ async function rebuildWorkOrdersFromSnapshots() {
   `);
 }
 
+// ---------------------------------------------------------------------------
+// Summary layer (data-warehouse): work_order_daily_summary holds a permanent,
+// tiny aggregate of the historical trend — one row per (day, plant, status)
+// with a count. It's rebuilt incrementally on import (only the imported days)
+// and read by the dashboard's trend instead of scanning every snapshot. Because
+// it's never pruned, the historical trend survives even after old raw snapshots
+// are pruned (Phase 3). Maintained via raw SQL so it needs no Prisma migration.
+let summaryTableReady = false;
+async function ensureSummaryTable() {
+  if (summaryTableReady) return;
+  await prisma.$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS work_order_daily_summary (
+      day text NOT NULL,
+      plant text NOT NULL,
+      status text NOT NULL,
+      cnt integer NOT NULL,
+      "updatedAt" timestamp(3) NOT NULL DEFAULT now(),
+      CONSTRAINT work_order_daily_summary_pkey PRIMARY KEY (day, plant, status)
+    )
+  `);
+  await prisma.$executeRawUnsafe(
+    `CREATE INDEX IF NOT EXISTS work_order_daily_summary_day_idx ON work_order_daily_summary (day)`
+  );
+  summaryTableReady = true;
+}
+
+// Recompute the summary rows for the given days from the raw snapshots. Pass
+// null to rebuild ALL days (one-time backfill). Incremental by day so pruning
+// old snapshots later never erases already-summarized history: only days that
+// appear in a new import are touched. The day/plant/status values come from the
+// same SQL expressions the trend groups by, so they always line up.
+export async function rebuildDailySummaryForDays(days: string[] | null) {
+  await ensureSummaryTable();
+  const selectSql = `
+    SELECT "dataDate"::date::text AS day,
+           COALESCE(NULLIF(TRIM(plant), ''), '(ไม่ระบุ)') AS plant,
+           COALESCE(UPPER(TRIM(status)), '') AS status,
+           COUNT(*)::int AS cnt, now()
+    FROM work_order_snapshots
+    WHERE "dataDate" IS NOT NULL`;
+  if (days === null) {
+    await prisma.$executeRawUnsafe(`TRUNCATE work_order_daily_summary`);
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO work_order_daily_summary (day, plant, status, cnt, "updatedAt")
+       ${selectSql} GROUP BY 1, 2, 3`
+    );
+    return;
+  }
+  if (days.length === 0) return;
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM work_order_daily_summary WHERE day = ANY($1::text[])`,
+    days
+  );
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO work_order_daily_summary (day, plant, status, cnt, "updatedAt")
+     ${selectSql} AND "dataDate"::date::text = ANY($1::text[]) GROUP BY 1, 2, 3`,
+    days
+  );
+}
+
+// Distinct YYYY-MM-DD days present in a set of parsed rows (matches ::date).
+function daysOf(rows: ParsedWorkOrder[]): string[] {
+  const set = new Set<string>();
+  for (const r of rows) if (r.dataDate) set.add(r.dataDate.toISOString().slice(0, 10));
+  return [...set];
+}
+
 // Incremental, low-memory CSV import (for large Google-Sheet URL refreshes on a
 // small server): stream-parse, keep only rows for Data_Dates not already stored,
 // upsert those snapshots, then rebuild WorkOrder from snapshots in SQL.
@@ -82,6 +149,7 @@ export async function runIncrementalCsvImport(opts: {
     await upsertSnapshotBatch(part, batch.id);
   }
   await rebuildWorkOrdersFromSnapshots();
+  await rebuildDailySummaryForDays([...newDates].map((d) => d.slice(0, 10)));
 
   await prisma.activityLog.create({
     data: {
@@ -260,6 +328,7 @@ export async function runGvizIncrementalImport(opts: {
     await upsertSnapshotBatch(part, batch.id);
   }
   await rebuildWorkOrdersFromSnapshots();
+  await rebuildDailySummaryForDays(newDates);
   await prisma.activityLog.create({
     data: {
       userId: opts.importedById,
@@ -319,6 +388,7 @@ export async function runImport(opts: {
   for (const part of chunk(snapRows, BATCH_SIZE)) {
     await upsertSnapshotBatch(part, batch.id);
   }
+  await rebuildDailySummaryForDays(daysOf(snapRows));
 
   await prisma.activityLog.create({
     data: {

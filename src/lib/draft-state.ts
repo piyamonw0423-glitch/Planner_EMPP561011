@@ -274,13 +274,27 @@ async function computeTrendData(): Promise<{
   total: SnapshotTrendPoint[];
   byPlant: Record<string, SnapshotTrendPoint[]>;
 }> {
-  const snapAgg = await withDbRetry(() =>
-    prisma.$queryRawUnsafe<Array<{ d: string; status: string | null; plant: string | null; n: number }>>(
-      `SELECT "dataDate"::date::text AS d, status,
-              COALESCE(NULLIF(TRIM(plant), ''), '(ไม่ระบุ)') AS plant, COUNT(*)::int AS n
-       FROM work_order_snapshots WHERE "dataDate" IS NOT NULL GROUP BY 1, 2, 3`
-    )
-  );
+  // Read from the permanent summary layer (tiny, prune-safe). Fall back to a
+  // live scan of the raw snapshots if the summary hasn't been built yet (fresh
+  // deploy before the first import/backfill) so the trend is never wrong.
+  type AggRow = { d: string; status: string | null; plant: string | null; n: number };
+  let snapAgg: AggRow[];
+  try {
+    snapAgg = await withDbRetry(() =>
+      prisma.$queryRawUnsafe<AggRow[]>(
+        `SELECT day AS d, status, plant, cnt AS n FROM work_order_daily_summary`
+      )
+    );
+    if (!snapAgg || snapAgg.length === 0) throw new Error("summary empty");
+  } catch {
+    snapAgg = await withDbRetry(() =>
+      prisma.$queryRawUnsafe<AggRow[]>(
+        `SELECT "dataDate"::date::text AS d, status,
+                COALESCE(NULLIF(TRIM(plant), ''), '(ไม่ระบุ)') AS plant, COUNT(*)::int AS n
+         FROM work_order_snapshots WHERE "dataDate" IS NOT NULL GROUP BY 1, 2, 3`
+      )
+    );
+  }
   const totalMap = new Map<string, TrendAgg>();
   const plantMap = new Map<string, Map<string, TrendAgg>>(); // plant -> date -> agg
   const dateSet = new Set<string>();
