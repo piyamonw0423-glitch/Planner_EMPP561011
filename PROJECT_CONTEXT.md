@@ -344,7 +344,8 @@ CM + Shutdown (วันนี้) → เพิ่ม PM (Preventive) → Predi
 - **Step 1 — Multi-file import (เสร็จ):** อัปโหลด Excel หลายไฟล์พร้อมกันได้ (1 ไฟล์/โรง) WO ไม่ซ้ำเพราะ Maximo ระบบเดียว → รวมเป็น batch เดียว
 - **Step 1 — ตัวกรอง "โรงไฟฟ้า" (เสร็จ):** เพิ่ม filter เดียวในหน้า Overview (ไม่สร้างตาราง/UI ใหม่) กรองทั้ง KPI และ WO Cumulative Trend; ตอนนี้มีแต่ข้อมูลกลุ่ม 561011 จะเห็นโรงอื่นเมื่อ import ไฟล์เข้ามา
 - **Step 2 — Summary layer (เสร็จ):** ตาราง `work_order_daily_summary` (day × plant × status → count) เป็น **ชั้นสรุปถาวรขนาดเล็ก** สร้าง/อัปเดตด้วย raw SQL (`ensureSummaryTable` + `rebuildDailySummaryForDays` ใน `run-import.ts`, ไม่ต้อง migration) รีบิลด์เฉพาะวันที่ import เข้ามา · trend อ่านจากตารางนี้แทนการสแกน `work_order_snapshots` ทั้งหมด (มี fallback ไปสแกน snapshots ถ้ายังไม่ได้ backfill) · backfill ครั้งเดียวด้วย `npm run build:summary` (verified 13 วันตรงกับ snapshots ทุกวัน)
-- **Step 3 — ยังไม่ทำ:** prune raw `work_order_snapshots` เก่า (เก็บ ~6–12 เดือน) โดยประวัติ trend ยังอยู่ครบใน summary layer · auto-refresh ผ่าน GitHub Actions
+- **Step 3 — Auto-prune (เสร็จ):** `pruneOldSnapshots()` ลบ `work_order_snapshots` ที่เก่ากว่า `SNAPSHOT_RETENTION_MONTHS = 6` เดือน (ผู้ใช้เลือก 6) · ทำงานเองหลัง import ทุกครั้ง (`autoPrune`) · **anchor ที่ Data_Date ล่าสุด ไม่ใช่เวลาจริง** (import หยุดก็ไม่ลบข้อมูลใหม่) · ลบวันได้ก็ต่อเมื่อวันนั้นมีใน summary แล้ว (ประวัติต้องถูกเก็บก่อนเสมอ) · ไม่แตะ summary/work_orders/planner updates · `npm run prune` (dry-run) / `npm run prune -- --apply` · **ตอนนี้ข้อมูล ~4 เดือน ยังไม่ลบอะไร** (cutoff = 2026-02-03) · ที่เสียหลัง prune คือเปิด detail รายใบของวันเก่าเกิน 6 เดือน (ผู้ใช้ยืนยันว่าไม่จำเป็น เพราะ raw ราย Data_Date ซ้ำซ้อน—เป็น WO เดิมที่อัปเดตสถานะ)
+- **Step 4 — ยังไม่ทำ:** auto-refresh ดึงข้อมูลใหม่เองผ่าน GitHub Actions (ฟรี)
 
 ---
 
