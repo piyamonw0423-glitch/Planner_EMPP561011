@@ -28,7 +28,10 @@ export function ImportForm() {
       } else {
         setMessage({
           type: "success",
-          text: `นำเข้าสำเร็จ ${data.rowCount.toLocaleString()} รายการ`,
+          text:
+            data.fileCount > 1
+              ? `นำเข้าสำเร็จ ${data.rowCount.toLocaleString()} รายการ จาก ${data.fileCount} ไฟล์`
+              : `นำเข้าสำเร็จ ${data.rowCount.toLocaleString()} รายการ`,
         });
         setFileName("");
         setUrl("");
@@ -45,28 +48,40 @@ export function ImportForm() {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
       <div>
-        <div className="wo-section-label">อัปโหลดไฟล์ Excel / CSV</div>
+        <div className="wo-section-label">อัปโหลดไฟล์ Excel / CSV (เลือกได้หลายไฟล์)</div>
         <div
           className="upload-zone"
           onClick={() => fileInputRef.current?.click()}
         >
-          📤 คลิกเพื่อเลือกไฟล์ (.xlsx, .csv)
+          📤 คลิกเพื่อเลือกไฟล์ (.xlsx, .csv) — เลือกหลายไฟล์พร้อมกันได้ เช่น PP34, PP561011, PP789
         </div>
         <input
           ref={fileInputRef}
           type="file"
+          multiple
           accept=".xlsx,.xls,.csv"
           style={{ display: "none" }}
-          onChange={(e) => setFileName(e.target.files?.[0]?.name || "")}
+          onChange={(e) =>
+            setFileName(
+              Array.from(e.target.files || [])
+                .map((f) => f.name)
+                .join(", ")
+            )
+          }
         />
-        {fileName && <div className="file-name">เลือกไฟล์: {fileName}</div>}
+        {fileName && (
+          <div className="file-name">
+            เลือก {fileName.split(", ").length} ไฟล์: {fileName}
+          </div>
+        )}
         <button
           className="wo-btn"
           disabled={busy || !fileName}
           onClick={() => {
-            if (!fileInputRef.current?.files?.[0]) return;
+            const files = fileInputRef.current?.files;
+            if (!files || files.length === 0) return;
             const fd = new FormData();
-            fd.set("file", fileInputRef.current.files[0]);
+            Array.from(files).forEach((f) => fd.append("file", f));
             submit(fd);
           }}
         >

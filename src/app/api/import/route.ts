@@ -23,14 +23,25 @@ export async function POST(request: Request) {
   }
 
   const formData = await request.formData();
-  const file = formData.get("file");
+  // Accept one OR many Excel/CSV files (e.g. one per power plant: PP34, PP561011,
+  // PP789). WO numbers are globally unique across plants, so the rows are simply
+  // combined and upserted together in a single import batch.
+  const files = formData.getAll("file").filter((f): f is File => f instanceof File);
   const url = formData.get("url");
 
   try {
-    if (file instanceof File) {
-      const buffer = await file.arrayBuffer();
-      const rows = parseWorkbookBuffer(buffer);
-      if (rows.length === 0) {
+    if (files.length > 0) {
+      const allRows = [];
+      const names: string[] = [];
+      const perFile: Array<{ name: string; rows: number }> = [];
+      for (const file of files) {
+        const buffer = await file.arrayBuffer();
+        const rows = parseWorkbookBuffer(buffer);
+        allRows.push(...rows);
+        names.push(file.name);
+        perFile.push({ name: file.name, rows: rows.length });
+      }
+      if (allRows.length === 0) {
         return Response.json(
           {
             error:
@@ -40,12 +51,18 @@ export async function POST(request: Request) {
         );
       }
       const batch = await runImport({
-        rows,
-        fileName: file.name,
+        rows: allRows,
+        fileName: names.join(" + "),
         source: "UPLOAD",
         importedById: session.user.id,
       });
-      return Response.json({ ok: true, rowCount: batch.rowCount, batchId: batch.id });
+      return Response.json({
+        ok: true,
+        rowCount: batch.rowCount,
+        batchId: batch.id,
+        fileCount: files.length,
+        perFile,
+      });
     }
 
     if (typeof url === "string" && url.trim()) {
